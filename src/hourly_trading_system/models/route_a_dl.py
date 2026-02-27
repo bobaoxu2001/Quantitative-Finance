@@ -28,25 +28,32 @@ class DLTrainingConfig:
     early_stopping_patience: int = 4
 
 
-class _TorchMultiTaskNet(nn.Module):  # pragma: no cover - tested through integration if torch exists
-    def __init__(self, input_dim: int, hidden_dim: int, dropout: float) -> None:
-        super().__init__()
-        self.backbone = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-        )
-        self.return_head = nn.Linear(hidden_dim, 1)
-        self.downside_head = nn.Linear(hidden_dim, 1)
+if TORCH_AVAILABLE:
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        h = self.backbone(x)
-        ret = self.return_head(h).squeeze(-1)
-        downside_logit = self.downside_head(h).squeeze(-1)
-        return ret, downside_logit
+    class _TorchMultiTaskNet(nn.Module):  # pragma: no cover - tested through integration if torch exists
+        def __init__(self, input_dim: int, hidden_dim: int, dropout: float) -> None:
+            super().__init__()
+            self.backbone = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+            )
+            self.return_head = nn.Linear(hidden_dim, 1)
+            self.downside_head = nn.Linear(hidden_dim, 1)
+
+        def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            h = self.backbone(x)
+            ret = self.return_head(h).squeeze(-1)
+            downside_logit = self.downside_head(h).squeeze(-1)
+            return ret, downside_logit
+
+else:
+
+    class _TorchMultiTaskNet:  # pragma: no cover - fallback typing shim
+        pass
 
 
 class DeepCrossSectionalModel(BaseSignalModel):
