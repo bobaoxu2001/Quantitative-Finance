@@ -96,9 +96,9 @@ class OrderAck:
     """OMS/EMS acknowledgement."""
 
     order_id: str
-    client_order_id: str | None = None
     accepted: bool
     status: str
+    client_order_id: str | None = None
     reason: str | None = None
     broker_timestamp: datetime = field(default_factory=now_utc)
 
