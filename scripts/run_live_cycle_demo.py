@@ -14,7 +14,7 @@ from hourly_trading_system.models import FactorLightGBMBaseline
 from hourly_trading_system.orchestration import LiveTradingRunner
 from hourly_trading_system.portfolio import HourlyPortfolioAllocator
 from hourly_trading_system.risk import RiskController
-from scripts.run_demo_backtest import make_synthetic_market_data
+from run_demo_backtest import make_synthetic_market_data
 
 
 def _train_model(

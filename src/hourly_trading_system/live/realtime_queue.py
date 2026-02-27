@@ -69,7 +69,7 @@ class FileBackedRealtimeQueue(BaseRealtimeQueue):
     def publish(self, message: QueueMessage) -> None:
         path = self._topic_file(message.topic)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(message.to_dict()) + "\n")
+            handle.write(json.dumps(message.to_dict(), default=str) + "\n")
 
     def _read_lines(self, topic: str) -> list[str]:
         path = self._topic_file(topic)
