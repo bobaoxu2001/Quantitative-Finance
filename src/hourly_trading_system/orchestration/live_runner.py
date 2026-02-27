@@ -195,7 +195,7 @@ class LiveTradingRunner:
         expected_cash: float,
         order: OrderRequest,
     ) -> float:
-        px = float(order.metadata.get("reference_price", 0.0))
+        px = float(order.limit_price) if order.limit_price is not None else float(order.metadata.get("reference_price", 0.0))
         if px <= 0:
             return expected_cash
         signed = order.quantity if order.side.upper() == "BUY" else -order.quantity
