@@ -1,0 +1,23 @@
+strategy_id: hourly_system_live
+queue:
+  backend: file
+  path: outputs/live_queue
+alerts:
+  file_path: outputs/live_alerts.jsonl
+  webhook_url: null
+registry:
+  root_dir: outputs/model_registry
+broker:
+  mode: paper
+  oms:
+    submit_url: null
+    cancel_url: null
+    health_url: null
+  ems:
+    enabled: false
+canary:
+  allocation: 0.1
+  min_observations: 40
+deployment:
+  auto_promote: false
+  auto_rollback: true

@@ -1,0 +1,31 @@
+timezone: America/New_York
+initial_capital: 100000.0
+benchmark_symbol: SPY
+backtest_window:
+  train_start: "2023-01-01"
+  train_end: "2025-10-31"
+  val_start: "2025-11-01"
+  val_end: "2025-12-31"
+  test_start: "2026-01-01"
+  test_end: "2026-02-26"
+costs:
+  slippage_bps: 1.0
+  half_spread_bps: 0.5
+  base_impact_eta: 8.0
+  max_participation_rate: 0.05
+portfolio:
+  max_position_weight: 0.10
+  target_vol_lower: 0.15
+  target_vol_upper: 0.20
+  min_dollar_volume: 2000000.0
+  max_turnover_per_rebalance: 0.25
+  max_sector_weight: 0.30
+risk:
+  max_drawdown_hard_stop: 0.20
+  var_confidence: 0.95
+  cvar_confidence: 0.95
+  beta_soft_limit: 1.10
+data_quality:
+  max_missing_feature_fraction: 0.25
+  max_data_latency_minutes: 10
+  fail_on_timestamp_violation: true
