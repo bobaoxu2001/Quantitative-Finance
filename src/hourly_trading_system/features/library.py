@@ -115,8 +115,8 @@ def _asof_join_symbol(
     if known_time_col not in right.columns or "symbol" not in right.columns:
         return left
 
-    out = left.sort_values(["symbol", "event_time"]).copy()
-    rhs = right.loc[:, sorted(use_cols)].copy().sort_values(["symbol", known_time_col])
+    out = left.sort_values(["event_time", "symbol"]).copy()
+    rhs = right.loc[:, sorted(use_cols)].copy().sort_values([known_time_col, "symbol"])
     out["event_time"] = pd.to_datetime(out["event_time"], utc=True)
     rhs[known_time_col] = pd.to_datetime(rhs[known_time_col], utc=True)
 
