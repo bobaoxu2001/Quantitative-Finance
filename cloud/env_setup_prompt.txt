@@ -1,0 +1,6 @@
+Scan this repository and update the cloud environment so Python3, pip, pytest,
+pandas, pyyaml, and editable install support are preinstalled.
+Set startup script to:
+  cd /workspace
+  export PATH="$HOME/.local/bin:$PATH"
+  python3 -m pip install -e '.[dev]'

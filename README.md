@@ -32,6 +32,12 @@ optimization constraints, and analytics/dashboard outputs.
 - Metrics engine with required institutional KPIs.
 - Dashboard blueprint payload builders and Streamlit starter script.
 - Pytest test suite covering anti-lookahead, metrics, and end-to-end flow.
+- Live production integration layer:
+  - OMS/EMS adapter interfaces (paper + HTTP broker gateway)
+  - real-time queue abstraction (in-memory + file-backed)
+  - alert router (console/file/webhook)
+  - model registry with approval workflow
+  - champion/canary deployment, promotion, and rollback governance
 
 ## Directory layout
 
@@ -47,10 +53,14 @@ src/hourly_trading_system/
   backtest/       # event-driven simulation engine
   analytics/      # performance metrics
   dashboard/      # panel blueprint
+  governance/     # model approval, canary, rollback controls
+  live/           # queue, alerting, live contracts
   orchestration/  # research/paper/live pipeline wrapper
 scripts/
   run_demo_backtest.py
   run_dashboard.py
+  run_live_cycle_demo.py
+  bootstrap_cloud_env.sh
 tests/
 ```
 
@@ -92,6 +102,28 @@ pytest
 
 ```bash
 streamlit run scripts/run_dashboard.py
+```
+
+### 5) Live cycle demo (registry + canary + OMS routing)
+
+```bash
+python3 scripts/run_live_cycle_demo.py
+```
+
+### 6) Cloud environment bootstrap script
+
+```bash
+bash scripts/bootstrap_cloud_env.sh
+```
+This script:
+- ensures `PATH` includes `$HOME/.local/bin` (pytest discoverable),
+- installs editable package with dev deps,
+- validates Python/pip/pytest availability.
+
+For cloud startup automation, see:
+
+```text
+cloud/startup.sh
 ```
 
 ## Production assumptions and controls
