@@ -20,6 +20,10 @@ dependencies = [
 dashboard = [
   "plotly>=5.24.0",
   "streamlit>=1.39.0",
+  "streamlit-autorefresh>=1.0.1",
+]
+live = [
+  "websocket-client>=1.8.0",
 ]
 ml = [
   "scikit-learn>=1.5.0",

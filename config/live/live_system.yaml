@@ -13,8 +13,31 @@ broker:
     submit_url: null
     cancel_url: null
     health_url: null
+    order_updates_url: null
+    websocket_url: null
+    auth:
+      api_key: null
+      api_secret: null
+      passphrase: null
+    retry:
+      max_attempts: 4
+      base_delay_seconds: 0.3
+      max_delay_seconds: 8.0
+      backoff_multiplier: 2.0
+      jitter_seconds: 0.1
+      retriable_status_codes: [408, 409, 425, 429, 500, 502, 503, 504]
   ems:
     enabled: false
+risk_guards:
+  max_orders_per_cycle: 80
+  max_order_notional: 50000.0
+  max_total_cycle_notional: 200000.0
+  max_rejection_streak: 5
+  max_consecutive_failures: 3
+  max_unresolved_orders: 40
+  max_intraday_loss_pct: 0.05
+  limit_protection_bps: 30.0
+  hard_price_floor: 0.01
 canary:
   allocation: 0.1
   min_observations: 40

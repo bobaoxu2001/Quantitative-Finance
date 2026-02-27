@@ -119,6 +119,9 @@ def main() -> None:
     print("Live cycle result:", result)
     print("Queue depth orders:", queue.size("orders"))
     print("Queue depth predictions:", queue.size("predictions"))
+    print("Queue depth order_updates:", queue.size("order_updates"))
+    print("Queue depth fills:", queue.size("fills"))
+    print("Queue depth reconciliation:", queue.size("reconciliation"))
 
 
 if __name__ == "__main__":

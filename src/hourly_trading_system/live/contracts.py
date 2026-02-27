@@ -83,6 +83,7 @@ class OrderRequest:
     order_type: str = "MKT"
     tif: str = "DAY"
     limit_price: float | None = None
+    client_order_id: str | None = None
     strategy_id: str = "hourly_system"
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -95,6 +96,7 @@ class OrderAck:
     """OMS/EMS acknowledgement."""
 
     order_id: str
+    client_order_id: str | None = None
     accepted: bool
     status: str
     reason: str | None = None
@@ -103,11 +105,92 @@ class OrderAck:
     def to_dict(self) -> dict[str, Any]:
         return {
             "order_id": self.order_id,
+            "client_order_id": self.client_order_id,
             "accepted": self.accepted,
             "status": self.status,
             "reason": self.reason,
             "broker_timestamp": self.broker_timestamp.isoformat(),
         }
+
+
+@dataclass(slots=True)
+class FillEvent:
+    """Execution fill event from broker callbacks or polling."""
+
+    order_id: str
+    symbol: str
+    side: str
+    quantity: float
+    fill_price: float
+    fees: float = 0.0
+    execution_id: str | None = None
+    fill_timestamp: datetime = field(default_factory=now_utc)
+    venue: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "order_id": self.order_id,
+            "symbol": self.symbol,
+            "side": self.side,
+            "quantity": self.quantity,
+            "fill_price": self.fill_price,
+            "fees": self.fees,
+            "execution_id": self.execution_id,
+            "fill_timestamp": self.fill_timestamp.isoformat(),
+            "venue": self.venue,
+            "metadata": self.metadata,
+        }
+
+    @staticmethod
+    def from_dict(payload: dict[str, Any]) -> "FillEvent":
+        data = payload.copy()
+        data["fill_timestamp"] = datetime.fromisoformat(str(data["fill_timestamp"]))
+        return FillEvent(**data)
+
+
+@dataclass(slots=True)
+class OrderStatusEvent:
+    """Order lifecycle status update event."""
+
+    order_id: str
+    status: str
+    symbol: str | None = None
+    side: str | None = None
+    requested_quantity: float | None = None
+    filled_quantity: float | None = None
+    remaining_quantity: float | None = None
+    average_fill_price: float | None = None
+    client_order_id: str | None = None
+    reason: str | None = None
+    broker_timestamp: datetime = field(default_factory=now_utc)
+    last_fill: FillEvent | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "order_id": self.order_id,
+            "status": self.status,
+            "symbol": self.symbol,
+            "side": self.side,
+            "requested_quantity": self.requested_quantity,
+            "filled_quantity": self.filled_quantity,
+            "remaining_quantity": self.remaining_quantity,
+            "average_fill_price": self.average_fill_price,
+            "client_order_id": self.client_order_id,
+            "reason": self.reason,
+            "broker_timestamp": self.broker_timestamp.isoformat(),
+            "last_fill": self.last_fill.to_dict() if self.last_fill else None,
+            "metadata": self.metadata,
+        }
+
+    @staticmethod
+    def from_dict(payload: dict[str, Any]) -> "OrderStatusEvent":
+        data = payload.copy()
+        data["broker_timestamp"] = datetime.fromisoformat(str(data["broker_timestamp"]))
+        if data.get("last_fill"):
+            data["last_fill"] = FillEvent.from_dict(data["last_fill"])
+        return OrderStatusEvent(**data)
 
 
 @dataclass(slots=True)

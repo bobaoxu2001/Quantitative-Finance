@@ -34,10 +34,14 @@ optimization constraints, and analytics/dashboard outputs.
 - Pytest test suite covering anti-lookahead, metrics, and end-to-end flow.
 - Live production integration layer:
   - OMS/EMS adapter interfaces (paper + HTTP broker gateway)
+  - signed REST adapter template (HMAC), retry policy, and idempotency keys
+  - WebSocket callback template for order status streams
   - real-time queue abstraction (in-memory + file-backed)
   - alert router (console/file/webhook)
   - model registry with approval workflow
   - champion/canary deployment, promotion, and rollback governance
+  - fill reconciliation and broker-vs-expected break detection
+  - kill-switch / circuit-breaker / limit protection guard rails
 
 ## Directory layout
 
@@ -60,6 +64,8 @@ scripts/
   run_demo_backtest.py
   run_dashboard.py
   run_live_cycle_demo.py
+  run_live_monitor.py
+  run_broker_ws_listener_template.py
   bootstrap_cloud_env.sh
 tests/
 ```
@@ -110,7 +116,27 @@ streamlit run scripts/run_dashboard.py
 python3 scripts/run_live_cycle_demo.py
 ```
 
-### 6) Cloud environment bootstrap script
+### 6) Real-time live monitor (queue stream, not offline CSV)
+
+```bash
+streamlit run scripts/run_live_monitor.py
+```
+Default queue path is `outputs/live_queue`.
+
+### Broker WebSocket listener template
+
+```bash
+python3 scripts/run_broker_ws_listener_template.py
+```
+Required environment variables:
+- `BROKER_WS_URL`
+- `BROKER_API_KEY`
+- `BROKER_API_SECRET`
+Optional:
+- `BROKER_API_PASSPHRASE`
+- `LIVE_QUEUE_PATH`
+
+### 7) Cloud environment bootstrap script
 
 ```bash
 bash scripts/bootstrap_cloud_env.sh
@@ -138,6 +164,12 @@ cloud/startup.sh
 - Dynamic universe handled through point-in-time membership table.
 - Hard drawdown governance via risk state transitions:
   - normal → conservative → risk_off.
+- Live order safety includes:
+  - max orders per cycle
+  - max notional per order/cycle
+  - rejection-streak circuit breaker
+  - intraday loss kill-switch
+  - protective limit-price conversion for market orders
 
 ## Important note
 
