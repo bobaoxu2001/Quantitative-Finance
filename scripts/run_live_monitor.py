@@ -9,6 +9,7 @@ import streamlit as st
 
 from hourly_trading_system.dashboard import load_live_queue_snapshot, summarize_live_snapshot
 from hourly_trading_system.governance import ModelRegistry
+from hourly_trading_system.live import LiveControlPlane
 
 
 def _render_orders(snapshot_orders: pd.DataFrame) -> None:
@@ -84,6 +85,7 @@ def main() -> None:
     st.title("Live Trading Monitor (Queue Stream)")
     queue_dir = st.sidebar.text_input("Queue directory", "outputs/live_queue")
     registry_dir = st.sidebar.text_input("Model registry directory", "outputs/model_registry")
+    control_plane_path = st.sidebar.text_input("Control plane state path", "outputs/live_controls.json")
     st.sidebar.caption("Reads topic JSONL files directly from live queue backend.")
 
     refresh_seconds = st.sidebar.slider("Auto refresh (sec)", 2, 30, 5)
@@ -97,6 +99,13 @@ def main() -> None:
 
     snapshot = load_live_queue_snapshot(Path(queue_dir))
     summary = summarize_live_snapshot(snapshot)
+    control_plane = None
+    control_state = None
+    try:
+        control_plane = LiveControlPlane(state_path=control_plane_path, required_unlock_approvals=2)
+        control_state = control_plane.get_state().to_dict()
+    except Exception as exc:
+        st.sidebar.warning(f"Control plane unavailable: {exc}")
     deployment_state = None
     try:
         registry = ModelRegistry(root_dir=registry_dir)
@@ -122,6 +131,52 @@ def main() -> None:
                 st.sidebar.json(new_state)
             except Exception as exc:
                 st.sidebar.error(f"Rollback failed: {exc}")
+
+    st.sidebar.subheader("Live Safety Controls")
+    if control_plane is not None and control_state is not None:
+        st.sidebar.json(
+            {
+                "force_kill_switch": control_state.get("force_kill_switch"),
+                "kill_reason": control_state.get("kill_reason"),
+                "kill_actor": control_state.get("kill_actor"),
+                "unlock_request": control_state.get("unlock_request"),
+            }
+        )
+        actor = st.sidebar.text_input("Operator", "ops_user")
+        kill_reason = st.sidebar.text_input("Kill reason", "manual_operator_trigger")
+        unlock_reason = st.sidebar.text_input("Unlock request reason", "manual_post_incident_recovery")
+
+        if st.sidebar.button("Force Kill-Switch"):
+            try:
+                new_state = control_plane.force_kill_switch(actor=actor, reason=kill_reason).to_dict()
+                st.sidebar.success("Kill-switch enforced.")
+                st.sidebar.json(new_state)
+            except Exception as exc:
+                st.sidebar.error(f"Kill-switch action failed: {exc}")
+
+        if st.sidebar.button("Request Unlock"):
+            try:
+                new_state = control_plane.request_unlock(requestor=actor, reason=unlock_reason).to_dict()
+                st.sidebar.success("Unlock request created.")
+                st.sidebar.json(new_state)
+            except Exception as exc:
+                st.sidebar.error(f"Unlock request failed: {exc}")
+
+        if st.sidebar.button("Approve Unlock"):
+            try:
+                new_state = control_plane.approve_unlock(approver=actor).to_dict()
+                st.sidebar.success("Unlock approval recorded.")
+                st.sidebar.json(new_state)
+            except Exception as exc:
+                st.sidebar.error(f"Unlock approval failed: {exc}")
+
+        if st.sidebar.button("Finalize Unlock"):
+            try:
+                new_state = control_plane.finalize_unlock(actor=actor).to_dict()
+                st.sidebar.success("Unlock finalized.")
+                st.sidebar.json(new_state)
+            except Exception as exc:
+                st.sidebar.error(f"Finalize unlock failed: {exc}")
 
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Total Messages", summary["total_messages"])

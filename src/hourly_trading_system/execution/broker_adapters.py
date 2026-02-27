@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from hourly_trading_system.live.contracts import FillEvent, OrderAck, OrderRequest, OrderStatusEvent, now_utc
+from .broker_signers import AlpacaSigner, BinanceSpotSigner, IBKRGatewaySigner
 
 from .broker_gateway import (
     HMACRequestSigner,
@@ -52,12 +53,13 @@ class BaseBrokerOMSAdapter(OMSClient):
                 passphrase=config.passphrase,
             )
         self.config = config
+        self.static_headers = dict(config.extra_headers or {})
         self.http = HTTPOMSClient(
             submit_url=config.submit_url,
             cancel_url=config.cancel_url,
             health_url=config.health_url,
             order_updates_url=config.order_updates_url,
-            headers=config.extra_headers or {},
+            headers=self.static_headers,
             signer=signer,
             retry_policy=config.retry_policy,
             idempotency_store=IdempotencyStore(),
@@ -66,6 +68,12 @@ class BaseBrokerOMSAdapter(OMSClient):
 
     def _build_order_payload(self, order: OrderRequest) -> dict[str, Any]:
         raise NotImplementedError
+
+    def _prepare_order_payload(self, order: OrderRequest, payload: dict[str, Any]) -> dict[str, Any]:
+        return payload
+
+    def _extra_order_headers(self, order: OrderRequest, payload: dict[str, Any]) -> dict[str, str]:
+        return {}
 
     def _parse_ack(self, response: dict[str, Any], order: OrderRequest) -> OrderAck:
         accepted = bool(response.get("accepted", True))
@@ -91,13 +99,15 @@ class BaseBrokerOMSAdapter(OMSClient):
                 broker_timestamp=now_utc(),
             )
             return None, reject
-        payload = self._build_order_payload(order)
+        payload = self._prepare_order_payload(order, self._build_order_payload(order))
+        extra_headers = {"Idempotency-Key": idem_key}
+        extra_headers.update(self._extra_order_headers(order, payload))
         try:
             response = self.http._request_json(
                 method="POST",
                 url=self.config.submit_url,
                 payload=payload,
-                extra_headers={"Idempotency-Key": idem_key},
+                extra_headers=extra_headers,
             )
         except Exception as exc:
             reject = OrderAck(
@@ -139,6 +149,12 @@ class BaseBrokerOMSAdapter(OMSClient):
 class AlpacaOMSAdapter(BaseBrokerOMSAdapter):
     """Template adapter for Alpaca-style broker REST schema."""
 
+    def __init__(self, config: BrokerConnectionConfig) -> None:
+        super().__init__(config)
+        self.alpaca_signer = None
+        if config.api_key and config.api_secret:
+            self.alpaca_signer = AlpacaSigner(api_key=config.api_key, api_secret=config.api_secret)
+
     def _build_order_payload(self, order: OrderRequest) -> dict[str, Any]:
         payload = {
             "symbol": order.symbol,
@@ -151,6 +167,11 @@ class AlpacaOMSAdapter(BaseBrokerOMSAdapter):
         if order.limit_price is not None:
             payload["limit_price"] = str(order.limit_price)
         return payload
+
+    def _extra_order_headers(self, order: OrderRequest, payload: dict[str, Any]) -> dict[str, str]:
+        if self.alpaca_signer is None:
+            return {}
+        return {**self.alpaca_signer.headers(), "X-REQUEST-NONCE": self.alpaca_signer.nonce()}
 
     def _parse_ack(self, response: dict[str, Any], order: OrderRequest) -> OrderAck:
         status = str(response.get("status", "accepted"))
@@ -168,6 +189,12 @@ class AlpacaOMSAdapter(BaseBrokerOMSAdapter):
 class BinanceSpotOMSAdapter(BaseBrokerOMSAdapter):
     """Template adapter for Binance-spot-like signed endpoints."""
 
+    def __init__(self, config: BrokerConnectionConfig) -> None:
+        super().__init__(config)
+        self.binance_signer = None
+        if config.api_key and config.api_secret:
+            self.binance_signer = BinanceSpotSigner(api_key=config.api_key, api_secret=config.api_secret)
+
     def _build_order_payload(self, order: OrderRequest) -> dict[str, Any]:
         payload = {
             "symbol": order.symbol,
@@ -181,6 +208,16 @@ class BinanceSpotOMSAdapter(BaseBrokerOMSAdapter):
             payload["timeInForce"] = "GTC"
             payload["price"] = f"{order.limit_price:.8f}"
         return payload
+
+    def _prepare_order_payload(self, order: OrderRequest, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.binance_signer is None:
+            return payload
+        return self.binance_signer.sign_params(payload)
+
+    def _extra_order_headers(self, order: OrderRequest, payload: dict[str, Any]) -> dict[str, str]:
+        if self.binance_signer is None:
+            return {}
+        return self.binance_signer.headers()
 
     def _parse_ack(self, response: dict[str, Any], order: OrderRequest) -> OrderAck:
         status = str(response.get("status", "NEW"))
@@ -198,6 +235,10 @@ class BinanceSpotOMSAdapter(BaseBrokerOMSAdapter):
 class IBKRGatewayOMSAdapter(BaseBrokerOMSAdapter):
     """Template adapter for IBKR Client Portal Gateway style routes."""
 
+    def __init__(self, config: BrokerConnectionConfig) -> None:
+        super().__init__(config)
+        self.ibkr_signer = IBKRGatewaySigner(session_token=config.api_secret) if config.api_secret else None
+
     def _build_order_payload(self, order: OrderRequest) -> dict[str, Any]:
         ibkr_order = {
             "acctId": order.metadata.get("account_id", ""),
@@ -214,6 +255,11 @@ class IBKRGatewayOMSAdapter(BaseBrokerOMSAdapter):
         if order.limit_price is not None:
             ibkr_order["price"] = order.limit_price
         return {"orders": [ibkr_order]}
+
+    def _extra_order_headers(self, order: OrderRequest, payload: dict[str, Any]) -> dict[str, str]:
+        if self.ibkr_signer is None:
+            return {}
+        return {**self.ibkr_signer.headers(), "X-IBKR-NONCE": self.ibkr_signer.nonce()}
 
     def _parse_ack(self, response: dict[str, Any], order: OrderRequest) -> OrderAck:
         # Gateway may return list of statuses.

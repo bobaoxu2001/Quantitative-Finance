@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import urllib.parse
+import urllib.request
+import json
 
 from hourly_trading_system.execution import (
     BrokerWebSocketClient,
@@ -20,6 +23,7 @@ def main() -> None:
     queue_path = os.environ.get("LIVE_QUEUE_PATH", "outputs/live_queue")
     sequence_field = os.environ.get("BROKER_WS_SEQUENCE_FIELD", "sequence")
     sequence_state_path = os.environ.get("BROKER_WS_SEQUENCE_STATE_PATH", "outputs/ws_sequence.state")
+    replay_url = os.environ.get("BROKER_REPLAY_URL")
     if not ws_url or not api_key or not api_secret:
         raise RuntimeError("Set BROKER_WS_URL, BROKER_API_KEY, BROKER_API_SECRET")
 
@@ -60,6 +64,36 @@ def main() -> None:
             payload["resume_from_sequence"] = last_sequence
         return payload
 
+    def gap_recovery(last_sequence: int, current_sequence: int) -> list[dict]:
+        if not replay_url:
+            return []
+        query = urllib.parse.urlencode(
+            {
+                "from_sequence": last_sequence + 1,
+                "to_sequence": current_sequence - 1,
+            }
+        )
+        parsed = urllib.parse.urlparse(replay_url)
+        path = parsed.path + (f"?{query}" if query else "")
+        headers = signer.auth_headers(method="GET", path=path, body="")
+        request = urllib.request.Request(url=f"{replay_url}?{query}", method="GET", headers=headers)
+        with urllib.request.urlopen(request, timeout=8) as response:
+            text = response.read().decode("utf-8")
+        payload = json.loads(text) if text else {}
+        events = payload.get("events", [])
+        queue.publish(
+            QueueMessage(
+                topic="order_updates",
+                payload={
+                    "source": "ws_replay",
+                    "from_sequence": last_sequence + 1,
+                    "to_sequence": current_sequence - 1,
+                    "count": len(events),
+                },
+            )
+        )
+        return events
+
     client = BrokerWebSocketClient(
         ws_url=ws_url,
         signer=signer,
@@ -69,6 +103,7 @@ def main() -> None:
         heartbeat_interval_seconds=15.0,
         sequence_field=sequence_field,
         sequence_state_path=sequence_state_path,
+        gap_recovery_callback=gap_recovery,
     )
     print("Starting broker WebSocket listener...")
     client.run_forever()

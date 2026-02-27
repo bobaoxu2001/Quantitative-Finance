@@ -38,6 +38,7 @@ optimization constraints, and analytics/dashboard outputs.
   - multi-broker OMS templates (Alpaca/Binance spot/IBKR gateway)
   - WebSocket callback template for order status streams
   - heartbeat + sequence checkpoint/resume for WS streams
+  - gap recovery callback with REST replay template
   - real-time queue abstraction (in-memory + file-backed)
   - alert router (console/file/webhook)
   - model registry with approval workflow
@@ -45,6 +46,7 @@ optimization constraints, and analytics/dashboard outputs.
   - fill reconciliation and broker-vs-expected break detection
   - live TCA attribution (shortfall/fees/total cost bps) from order-to-fill linkage
   - kill-switch / circuit-breaker / limit protection guard rails
+  - file-backed control plane for manual kill-switch and approval-based unlock
 
 ## Directory layout
 
@@ -70,6 +72,10 @@ scripts/
   run_live_monitor.py
   run_broker_ws_listener_template.py
   run_live_from_config_template.py
+deploy/
+  kubernetes/     # CronJob + monitor deployment templates
+  airflow/        # DAG template
+  systemd/        # service/timer templates
   bootstrap_cloud_env.sh
 tests/
 ```
@@ -127,6 +133,11 @@ streamlit run scripts/run_live_monitor.py
 ```
 Default queue path is `outputs/live_queue`.
 The monitor includes health score, queue depths, TCA summary, and a rollback control panel.
+It also includes control-plane actions:
+- Force Kill-Switch
+- Request Unlock
+- Approve Unlock
+- Finalize Unlock (requires approvals)
 
 ### Broker WebSocket listener template
 
@@ -147,6 +158,14 @@ Optional:
 
 ```bash
 python3 scripts/run_live_from_config_template.py
+```
+
+### Deployment templates
+
+See:
+
+```text
+deploy/README.md
 ```
 
 ### 7) Cloud environment bootstrap script

@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly Trading Live Cycle
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/workspace
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash -lc 'python3 scripts/run_live_from_config_template.py'
+StandardOutput=append:/workspace/outputs/systemd-hourly.log
+StandardError=append:/workspace/outputs/systemd-hourly.err.log

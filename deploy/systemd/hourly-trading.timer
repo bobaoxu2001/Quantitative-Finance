@@ -1,0 +1,10 @@
+[Unit]
+Description=Run hourly trading cycle every hour
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* *:00:00
+Persistent=true
+Unit=hourly-trading.service
+
+[Install]
+WantedBy=timers.target

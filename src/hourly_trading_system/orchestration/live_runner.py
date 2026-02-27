@@ -15,6 +15,7 @@ from hourly_trading_system.execution.broker_gateway import OrderBatchResult
 from hourly_trading_system.governance import CanaryPolicy, ModelRegistry, deterministic_canary_assignment
 from hourly_trading_system.live.alerting import AlertRouter
 from hourly_trading_system.live.contracts import AlertSeverity, OrderRequest, QueueMessage, now_utc
+from hourly_trading_system.live.control_plane import LiveControlPlane
 from hourly_trading_system.live.reconciliation import FillReconciler
 from hourly_trading_system.live.realtime_queue import BaseRealtimeQueue, InMemoryRealtimeQueue
 from hourly_trading_system.portfolio import HourlyPortfolioAllocator
@@ -51,6 +52,7 @@ class LiveTradingRunner:
         safety_guard: LiveSafetyGuard | None = None,
         reconciler: FillReconciler | None = None,
         tca_attributor: LiveTCAAttributor | None = None,
+        control_plane: LiveControlPlane | None = None,
         strategy_id: str = "hourly_system_live",
     ) -> None:
         self.config = config
@@ -64,6 +66,7 @@ class LiveTradingRunner:
         self.safety_guard = safety_guard or LiveSafetyGuard()
         self.reconciler = reconciler or FillReconciler(cash=float(config.initial_capital))
         self.tca_attributor = tca_attributor or LiveTCAAttributor()
+        self.control_plane = control_plane
         self.strategy_id = strategy_id
         self.current_positions: dict[str, float] = {}
         self.cash: float = float(config.initial_capital)
@@ -71,6 +74,18 @@ class LiveTradingRunner:
         self.expected_cash: float = float(config.initial_capital)
         self.last_trade_day: pd.Timestamp | None = None
         self.canary_policy = CanaryPolicy()
+
+    def _sync_control_plane(self) -> None:
+        if self.control_plane is None:
+            return
+        state = self.control_plane.get_state()
+        if state.force_kill_switch:
+            if not self.safety_guard.kill_switch_engaged:
+                self.safety_guard.engage_kill_switch(f"control_plane:{state.kill_reason or 'forced'}")
+            return
+        # Allow reset when kill switch was externally released.
+        if self.safety_guard.kill_switch_engaged and str(self.safety_guard.kill_switch_reason).startswith("control_plane:"):
+            self.safety_guard.reset_kill_switch()
 
     def _publish_event(self, topic: str, payload: dict[str, Any]) -> None:
         self.realtime_queue.publish(QueueMessage(topic=topic, payload=payload))
@@ -256,6 +271,7 @@ class LiveTradingRunner:
             decision_time = decision_time.tz_localize("UTC")
         else:
             decision_time = decision_time.tz_convert("UTC")
+        self._sync_control_plane()
 
         required_market_cols = {"symbol", "close", "volume", "sector", "rv_20h"}
         missing = sorted(required_market_cols - set(market_snapshot.columns))
@@ -298,6 +314,11 @@ class LiveTradingRunner:
         self.last_trade_day = current_day
         self.safety_guard.update_equity_state(equity=equity, is_new_day=is_new_day)
         if self.safety_guard.kill_switch_engaged:
+            if self.control_plane is not None:
+                self.control_plane.force_kill_switch(
+                    actor="live_runner",
+                    reason=self.safety_guard.kill_switch_reason or "kill_switch",
+                )
             self.oms_client.cancel_all(self.strategy_id)
             return LiveRunResult(
                 decision_time=decision_time,
@@ -417,6 +438,11 @@ class LiveTradingRunner:
             )
 
         if self.safety_guard.kill_switch_engaged:
+            if self.control_plane is not None:
+                self.control_plane.force_kill_switch(
+                    actor="live_runner",
+                    reason=self.safety_guard.kill_switch_reason or "kill_switch",
+                )
             self.oms_client.cancel_all(self.strategy_id)
 
         payload = {
@@ -429,6 +455,7 @@ class LiveTradingRunner:
             "canary_allocation": canary_allocation,
             "kill_switch": self.safety_guard.kill_switch_engaged,
             "reconciliation_breaks": report.has_breaks,
+            "control_plane_enabled": self.control_plane is not None,
         }
         self._publish_event(
             "orders",

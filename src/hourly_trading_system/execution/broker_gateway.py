@@ -405,6 +405,7 @@ class BrokerWebSocketClient:
         heartbeat_interval_seconds: float = 15.0,
         sequence_field: str | None = None,
         sequence_state_path: str | Path | None = None,
+        gap_recovery_callback: Callable[[int, int], list[dict[str, Any]]] | None = None,
     ) -> None:
         self.ws_url = ws_url
         self.signer = signer
@@ -415,6 +416,7 @@ class BrokerWebSocketClient:
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self.sequence_field = sequence_field
         self.sequence_state_path = Path(sequence_state_path) if sequence_state_path else None
+        self.gap_recovery_callback = gap_recovery_callback
         self.last_sequence: int | None = None
         if self.sequence_state_path is not None:
             self.sequence_state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -465,12 +467,21 @@ class BrokerWebSocketClient:
             return
         if self.last_sequence is not None and sequence <= self.last_sequence:
             return
-        if self.last_sequence is not None and sequence > self.last_sequence + 1 and self.on_error is not None:
-            self.on_error(
-                RuntimeError(
-                    f"WebSocket sequence gap: last={self.last_sequence}, current={sequence}"
+        if self.last_sequence is not None and sequence > self.last_sequence + 1:
+            if self.on_error is not None:
+                self.on_error(
+                    RuntimeError(
+                        f"WebSocket sequence gap: last={self.last_sequence}, current={sequence}"
+                    )
                 )
-            )
+            if self.gap_recovery_callback is not None:
+                try:
+                    replay_messages = self.gap_recovery_callback(self.last_sequence, sequence)
+                    for replay in replay_messages:
+                        self.on_message(replay)
+                except Exception as exc:
+                    if self.on_error is not None:
+                        self.on_error(exc)
         self.last_sequence = sequence
         self._persist_sequence()
 

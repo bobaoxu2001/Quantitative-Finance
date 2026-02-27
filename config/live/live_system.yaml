@@ -2,6 +2,10 @@ strategy_id: hourly_system_live
 queue:
   backend: file
   path: outputs/live_queue
+  replay:
+    enabled: true
+    sequence_field: sequence
+    sequence_state_path: outputs/ws_sequence.state
 alerts:
   file_path: outputs/live_alerts.jsonl
   webhook_url: null
@@ -45,3 +49,6 @@ canary:
 deployment:
   auto_promote: false
   auto_rollback: true
+control_plane:
+  state_path: outputs/live_controls.json
+  required_unlock_approvals: 2

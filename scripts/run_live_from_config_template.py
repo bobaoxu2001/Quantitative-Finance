@@ -15,7 +15,7 @@ from hourly_trading_system.execution import (
     build_broker_oms_adapter,
 )
 from hourly_trading_system.governance import ModelRegistry
-from hourly_trading_system.live import AlertRouter, FileBackedRealtimeQueue, FillReconciler
+from hourly_trading_system.live import AlertRouter, FileBackedRealtimeQueue, FillReconciler, LiveControlPlane
 from hourly_trading_system.orchestration import LiveTradingRunner
 from hourly_trading_system.portfolio import HourlyPortfolioAllocator
 from hourly_trading_system.risk import LiveGuardConfig, LiveSafetyGuard, RiskController
@@ -83,6 +83,11 @@ def build_live_runner(
     )
 
     registry = ModelRegistry(root_dir=live_cfg.get("registry", {}).get("root_dir", "outputs/model_registry"))
+    ctrl_cfg = live_cfg.get("control_plane", {})
+    control_plane = LiveControlPlane(
+        state_path=ctrl_cfg.get("state_path", "outputs/live_controls.json"),
+        required_unlock_approvals=int(ctrl_cfg.get("required_unlock_approvals", 2)),
+    )
     allocator = HourlyPortfolioAllocator(config=system_cfg.portfolio)
     risk_ctrl = RiskController(
         max_drawdown=system_cfg.risk.max_drawdown_hard_stop,
@@ -101,6 +106,7 @@ def build_live_runner(
         safety_guard=safety_guard,
         reconciler=FillReconciler(cash=system_cfg.initial_capital),
         tca_attributor=LiveTCAAttributor(),
+        control_plane=control_plane,
         strategy_id=live_cfg.get("strategy_id", "hourly_system_live"),
     )
 

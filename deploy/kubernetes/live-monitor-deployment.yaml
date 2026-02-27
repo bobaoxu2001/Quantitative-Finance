@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: live-monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: live-monitor
+  template:
+    metadata:
+      labels:
+        app: live-monitor
+    spec:
+      containers:
+        - name: monitor
+          image: "<REPLACE_IMAGE>"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8501
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              cd /workspace && \
+              export PATH="$HOME/.local/bin:$PATH" && \
+              streamlit run scripts/run_live_monitor.py --server.port 8501 --server.address 0.0.0.0
+          envFrom:
+            - configMapRef:
+                name: hourly-trading-config
+          volumeMounts:
+            - name: workspace-pv
+              mountPath: /workspace/outputs
+      volumes:
+        - name: workspace-pv
+          persistentVolumeClaim:
+            claimName: "<REPLACE_OUTPUTS_PVC>"

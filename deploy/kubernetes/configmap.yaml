@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hourly-trading-config
+data:
+  LIVE_QUEUE_PATH: "/workspace/outputs/live_queue"
+  BROKER_WS_SEQUENCE_FIELD: "sequence"
+  BROKER_WS_SEQUENCE_STATE_PATH: "/workspace/outputs/ws_sequence.state"
+  PYTHONUNBUFFERED: "1"

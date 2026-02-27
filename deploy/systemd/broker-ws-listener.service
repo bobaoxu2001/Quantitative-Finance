@@ -1,0 +1,17 @@
+[Unit]
+Description=Broker WebSocket Listener for Order Updates
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/workspace
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash -lc 'python3 scripts/run_broker_ws_listener_template.py'
+Restart=always
+RestartSec=5
+StandardOutput=append:/workspace/outputs/systemd-ws.log
+StandardError=append:/workspace/outputs/systemd-ws.err.log
+
+[Install]
+WantedBy=multi-user.target

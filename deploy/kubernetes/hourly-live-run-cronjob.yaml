@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hourly-live-run
+spec:
+  schedule: "0 * * * 1-5"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: live-runner
+              image: "<REPLACE_IMAGE>"
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - -lc
+                - |
+                  cd /workspace && \
+                  export PATH="$HOME/.local/bin:$PATH" && \
+                  python3 scripts/run_live_from_config_template.py
+              envFrom:
+                - configMapRef:
+                    name: hourly-trading-config
+                - secretRef:
+                    name: hourly-trading-secrets
+              volumeMounts:
+                - name: workspace-pv
+                  mountPath: /workspace/outputs
+          volumes:
+            - name: workspace-pv
+              persistentVolumeClaim:
+                claimName: "<REPLACE_OUTPUTS_PVC>"

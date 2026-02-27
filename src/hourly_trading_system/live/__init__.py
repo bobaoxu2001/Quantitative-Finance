@@ -21,6 +21,7 @@ from .contracts import (
     QueueMessage,
     now_utc,
 )
+from .control_plane import LiveControlPlane, LiveControlState, UnlockRequest
 from .reconciliation import FillReconciler, OrderLedgerEntry, ReconciliationReport
 from .realtime_queue import (
     BaseRealtimeQueue,
@@ -39,6 +40,8 @@ __all__ = [
     "DeploymentState",
     "FillEvent",
     "FillReconciler",
+    "LiveControlPlane",
+    "LiveControlState",
     "FileAlertSink",
     "FileBackedRealtimeQueue",
     "InMemoryRealtimeQueue",
@@ -50,6 +53,7 @@ __all__ = [
     "OrderStatusEvent",
     "QueueMessage",
     "ReconciliationReport",
+    "UnlockRequest",
     "WebhookAlertSink",
     "broadcast",
     "drain_topic",
