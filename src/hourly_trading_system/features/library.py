@@ -108,9 +108,11 @@ def _asof_join_symbol(
 ) -> pd.DataFrame:
     if right is None or right.empty:
         return left
-    use_cols = {"symbol", known_time_col, *feature_map.keys()}
-    missing = [col for col in use_cols if col not in right.columns]
-    if missing:
+    available_src = [src for src in feature_map.keys() if src in right.columns]
+    if not available_src:
+        return left
+    use_cols = {"symbol", known_time_col, *available_src}
+    if known_time_col not in right.columns or "symbol" not in right.columns:
         return left
 
     out = left.sort_values(["symbol", "event_time"]).copy()
@@ -127,9 +129,10 @@ def _asof_join_symbol(
         allow_exact_matches=False,
         direction="backward",
     )
-    for src_col, dst_col in feature_map.items():
+    for src_col in available_src:
+        dst_col = feature_map[src_col]
         merged[dst_col] = merged[src_col]
-    return merged.drop(columns=list(feature_map.keys()) + [known_time_col], errors="ignore")
+    return merged.drop(columns=available_src + [known_time_col], errors="ignore")
 
 
 def _asof_join_global(
@@ -140,10 +143,10 @@ def _asof_join_global(
 ) -> pd.DataFrame:
     if right is None or right.empty:
         return left
-    use_cols = {known_time_col, *feature_map.keys()}
-    missing = [col for col in use_cols if col not in right.columns]
-    if missing:
+    available_src = [src for src in feature_map.keys() if src in right.columns]
+    if not available_src or known_time_col not in right.columns:
         return left
+    use_cols = {known_time_col, *available_src}
     out = left.sort_values("event_time").copy()
     rhs = right.loc[:, sorted(use_cols)].copy().sort_values(known_time_col)
     out["event_time"] = pd.to_datetime(out["event_time"], utc=True)
@@ -156,9 +159,10 @@ def _asof_join_global(
         allow_exact_matches=False,
         direction="backward",
     )
-    for src_col, dst_col in feature_map.items():
+    for src_col in available_src:
+        dst_col = feature_map[src_col]
         merged[dst_col] = merged[src_col]
-    return merged.drop(columns=list(feature_map.keys()) + [known_time_col], errors="ignore")
+    return merged.drop(columns=available_src + [known_time_col], errors="ignore")
 
 
 def _safe_rank(series: pd.Series, ascending: bool = True) -> pd.Series:
@@ -346,7 +350,10 @@ def build_feature_panel(
     )
 
     # Derived sentiment/analyst/macro features after joins.
-    df["sent_mom_6h"] = df.groupby("symbol")["sent_level"].transform(lambda s: s - s.shift(6))
+    if "sent_level" in df.columns:
+        df["sent_mom_6h"] = df.groupby("symbol")["sent_level"].transform(lambda s: s - s.shift(6))
+    else:
+        df["sent_mom_6h"] = np.nan
     if "sentiment_update_time" in df.columns:
         sent_update = pd.to_datetime(df["sentiment_update_time"], utc=True, errors="coerce")
         df["hours_since_sentiment_update"] = (
@@ -360,24 +367,46 @@ def build_feature_panel(
     else:
         df["analyst_action_recency_hours"] = np.nan
 
-    if "known_time" in df.columns:
-        fund_known = pd.to_datetime(df["known_time"], utc=True, errors="coerce")
-        df["hours_since_fundamental_update"] = (
-            (df["event_time"] - fund_known).dt.total_seconds() / 3600.0
-        )
+    if "hours_since_fundamental_update" not in df.columns:
+        if "f_days_since_filing" in df.columns:
+            df["hours_since_fundamental_update"] = df["f_days_since_filing"] * 24.0
+        else:
+            df["hours_since_fundamental_update"] = np.nan
+    if "m_vix" in df.columns:
+        df["m_vix_chg_1h"] = df.groupby("symbol")["m_vix"].transform(lambda s: s - s.shift(1))
+    else:
+        df["m_vix_chg_1h"] = np.nan
 
-    df["m_vix_chg_1h"] = df.groupby("symbol")["m_vix"].transform(lambda s: s - s.shift(1))
-    df["m_spy_rv_20h"] = (
-        df["spy_ret_1h"]
-        .rolling(20, min_periods=10)
-        .std()
-        .reindex(df.index)
-    )
-    df["m_yield_curve_slope"] = df["m_yield_10y"] - df["m_yield_2y"]
-    df["m_y2_chg_1h"] = df.groupby("symbol")["m_yield_2y"].transform(lambda s: s - s.shift(1))
-    df["m_dxy_ret_5h"] = df.groupby("symbol")["m_dxy"].transform(lambda s: np.log(s / s.shift(5)))
-    df["m_wti_ret_5h"] = df.groupby("symbol")["m_wti"].transform(lambda s: np.log(s / s.shift(5)))
-    df["m_gold_ret_5h"] = df.groupby("symbol")["m_gold"].transform(lambda s: np.log(s / s.shift(5)))
+    if "spy_ret_1h" in df.columns:
+        spy_rv = (
+            df[["event_time", "spy_ret_1h"]]
+            .drop_duplicates("event_time")
+            .sort_values("event_time")
+        )
+        spy_rv["m_spy_rv_20h"] = spy_rv["spy_ret_1h"].rolling(20, min_periods=10).std()
+        df = df.merge(spy_rv[["event_time", "m_spy_rv_20h"]], on="event_time", how="left")
+    else:
+        df["m_spy_rv_20h"] = np.nan
+
+    if "m_yield_10y" in df.columns and "m_yield_2y" in df.columns:
+        df["m_yield_curve_slope"] = df["m_yield_10y"] - df["m_yield_2y"]
+        df["m_y2_chg_1h"] = df.groupby("symbol")["m_yield_2y"].transform(lambda s: s - s.shift(1))
+    else:
+        df["m_yield_curve_slope"] = np.nan
+        df["m_y2_chg_1h"] = np.nan
+
+    if "m_dxy" in df.columns:
+        df["m_dxy_ret_5h"] = df.groupby("symbol")["m_dxy"].transform(lambda s: np.log(s / s.shift(5)))
+    else:
+        df["m_dxy_ret_5h"] = np.nan
+    if "m_wti" in df.columns:
+        df["m_wti_ret_5h"] = df.groupby("symbol")["m_wti"].transform(lambda s: np.log(s / s.shift(5)))
+    else:
+        df["m_wti_ret_5h"] = np.nan
+    if "m_gold" in df.columns:
+        df["m_gold_ret_5h"] = df.groupby("symbol")["m_gold"].transform(lambda s: np.log(s / s.shift(5)))
+    else:
+        df["m_gold_ret_5h"] = np.nan
 
     # Ensure all required features exist.
     for feature in FEATURE_COLUMNS:

@@ -71,7 +71,7 @@ def _sortino(returns: pd.Series) -> float:
 
 
 def _monthly_returns(returns: pd.Series) -> pd.DataFrame:
-    monthly = (1.0 + returns).resample("M").prod() - 1.0
+    monthly = (1.0 + returns).resample("ME").prod() - 1.0
     table = monthly.to_frame(name="monthly_return")
     table["year"] = table.index.year
     table["month"] = table.index.month
