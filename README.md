@@ -39,6 +39,7 @@ optimization constraints, and analytics/dashboard outputs.
   - WebSocket callback template for order status streams
   - heartbeat + sequence checkpoint/resume for WS streams
   - gap recovery callback with REST replay template
+  - exactly-once dedup storage (SQLite WAL, optional Redis)
   - real-time queue abstraction (in-memory + file-backed)
   - alert router (console/file/webhook)
   - model registry with approval workflow
@@ -47,6 +48,7 @@ optimization constraints, and analytics/dashboard outputs.
   - live TCA attribution (shortfall/fees/total cost bps) from order-to-fill linkage
   - kill-switch / circuit-breaker / limit protection guard rails
   - file-backed control plane for manual kill-switch and approval-based unlock
+  - RBAC policy for kill-switch / unlock approval / finalize actions
 
 ## Directory layout
 
@@ -72,6 +74,8 @@ scripts/
   run_live_monitor.py
   run_broker_ws_listener_template.py
   run_live_from_config_template.py
+  run_production_preflight.py
+  run_preflight.sh
 deploy/
   kubernetes/     # CronJob + monitor deployment templates
   airflow/        # DAG template
@@ -153,6 +157,11 @@ Optional:
 - `LIVE_QUEUE_PATH`
 - `BROKER_WS_SEQUENCE_FIELD` (default: `sequence`)
 - `BROKER_WS_SEQUENCE_STATE_PATH` (default: `outputs/ws_sequence.state`)
+- `BROKER_KIND` (e.g. `binance_spot`)
+- `BINANCE_REST_URL` and `BROKER_REPLAY_SYMBOL` for official replay mode
+- `LIVE_DEDUP_BACKEND` (`sqlite` or `redis`)
+- `LIVE_DEDUP_SQLITE_PATH` (default: `outputs/live_events.db`)
+- `LIVE_DEDUP_REDIS_URL` (if using redis backend)
 
 ### Build live runner from config template
 
@@ -167,6 +176,15 @@ See:
 ```text
 deploy/README.md
 ```
+
+### One-click production preflight
+
+```bash
+bash scripts/run_preflight.sh
+```
+This runs:
+- config + environment preflight (`scripts/run_production_preflight.py`)
+- smoke tests for control plane and live execution extensions.
 
 ### 7) Cloud environment bootstrap script
 

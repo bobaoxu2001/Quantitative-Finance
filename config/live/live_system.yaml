@@ -2,10 +2,15 @@ strategy_id: hourly_system_live
 queue:
   backend: file
   path: outputs/live_queue
+  dedup:
+    backend: sqlite
+    sqlite_path: outputs/live_events.db
+    redis_url: null
   replay:
     enabled: true
     sequence_field: sequence
     sequence_state_path: outputs/ws_sequence.state
+    symbol: null
 alerts:
   file_path: outputs/live_alerts.jsonl
   webhook_url: null
@@ -52,3 +57,9 @@ deployment:
 control_plane:
   state_path: outputs/live_controls.json
   required_unlock_approvals: 2
+  enforce_rbac: true
+  permissions:
+    force_kill_switch: [ops, risk_manager, admin]
+    request_unlock: [ops, admin]
+    approve_unlock: [risk_manager, head_of_trading, admin]
+    finalize_unlock: [admin, head_of_trading]

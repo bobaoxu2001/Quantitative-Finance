@@ -318,6 +318,7 @@ class LiveTradingRunner:
                 self.control_plane.force_kill_switch(
                     actor="live_runner",
                     reason=self.safety_guard.kill_switch_reason or "kill_switch",
+                    actor_role="admin",
                 )
             self.oms_client.cancel_all(self.strategy_id)
             return LiveRunResult(
@@ -442,6 +443,7 @@ class LiveTradingRunner:
                 self.control_plane.force_kill_switch(
                     actor="live_runner",
                     reason=self.safety_guard.kill_switch_reason or "kill_switch",
+                    actor_role="admin",
                 )
             self.oms_client.cancel_all(self.strategy_id)
 

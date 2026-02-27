@@ -143,12 +143,21 @@ def main() -> None:
             }
         )
         actor = st.sidebar.text_input("Operator", "ops_user")
+        actor_role = st.sidebar.selectbox(
+            "Operator role",
+            options=["ops", "risk_manager", "head_of_trading", "admin"],
+            index=0,
+        )
         kill_reason = st.sidebar.text_input("Kill reason", "manual_operator_trigger")
         unlock_reason = st.sidebar.text_input("Unlock request reason", "manual_post_incident_recovery")
 
         if st.sidebar.button("Force Kill-Switch"):
             try:
-                new_state = control_plane.force_kill_switch(actor=actor, reason=kill_reason).to_dict()
+                new_state = control_plane.force_kill_switch(
+                    actor=actor,
+                    reason=kill_reason,
+                    actor_role=actor_role,
+                ).to_dict()
                 st.sidebar.success("Kill-switch enforced.")
                 st.sidebar.json(new_state)
             except Exception as exc:
@@ -156,7 +165,11 @@ def main() -> None:
 
         if st.sidebar.button("Request Unlock"):
             try:
-                new_state = control_plane.request_unlock(requestor=actor, reason=unlock_reason).to_dict()
+                new_state = control_plane.request_unlock(
+                    requestor=actor,
+                    reason=unlock_reason,
+                    actor_role=actor_role,
+                ).to_dict()
                 st.sidebar.success("Unlock request created.")
                 st.sidebar.json(new_state)
             except Exception as exc:
@@ -164,7 +177,10 @@ def main() -> None:
 
         if st.sidebar.button("Approve Unlock"):
             try:
-                new_state = control_plane.approve_unlock(approver=actor).to_dict()
+                new_state = control_plane.approve_unlock(
+                    approver=actor,
+                    actor_role=actor_role,
+                ).to_dict()
                 st.sidebar.success("Unlock approval recorded.")
                 st.sidebar.json(new_state)
             except Exception as exc:
@@ -172,7 +188,10 @@ def main() -> None:
 
         if st.sidebar.button("Finalize Unlock"):
             try:
-                new_state = control_plane.finalize_unlock(actor=actor).to_dict()
+                new_state = control_plane.finalize_unlock(
+                    actor=actor,
+                    actor_role=actor_role,
+                ).to_dict()
                 st.sidebar.success("Unlock finalized.")
                 st.sidebar.json(new_state)
             except Exception as exc:

@@ -15,7 +15,13 @@ from hourly_trading_system.execution import (
     build_broker_oms_adapter,
 )
 from hourly_trading_system.governance import ModelRegistry
-from hourly_trading_system.live import AlertRouter, FileBackedRealtimeQueue, FillReconciler, LiveControlPlane
+from hourly_trading_system.live import (
+    AlertRouter,
+    FileBackedRealtimeQueue,
+    FillReconciler,
+    LiveControlPlane,
+    RBACPolicy,
+)
 from hourly_trading_system.orchestration import LiveTradingRunner
 from hourly_trading_system.portfolio import HourlyPortfolioAllocator
 from hourly_trading_system.risk import LiveGuardConfig, LiveSafetyGuard, RiskController
@@ -87,6 +93,15 @@ def build_live_runner(
     control_plane = LiveControlPlane(
         state_path=ctrl_cfg.get("state_path", "outputs/live_controls.json"),
         required_unlock_approvals=int(ctrl_cfg.get("required_unlock_approvals", 2)),
+        rbac_policy=RBACPolicy(
+            permissions={
+                action: set(roles)
+                for action, roles in ctrl_cfg.get("permissions", {}).items()
+            }
+            if ctrl_cfg.get("permissions")
+            else RBACPolicy().permissions
+        ),
+        enforce_rbac=bool(ctrl_cfg.get("enforce_rbac", False)),
     )
     allocator = HourlyPortfolioAllocator(config=system_cfg.portfolio)
     risk_ctrl = RiskController(

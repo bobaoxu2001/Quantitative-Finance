@@ -24,6 +24,7 @@ dashboard = [
 ]
 live = [
   "websocket-client>=1.8.0",
+  "redis>=5.2.0",
 ]
 ml = [
   "scikit-learn>=1.5.0",

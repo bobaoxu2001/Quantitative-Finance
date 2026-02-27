@@ -22,6 +22,8 @@ from .contracts import (
     now_utc,
 )
 from .control_plane import LiveControlPlane, LiveControlState, UnlockRequest
+from .event_store import RedisDedupStore, SQLiteEventStore, stable_event_key
+from .rbac import AccessDeniedError, RBACPolicy
 from .reconciliation import FillReconciler, OrderLedgerEntry, ReconciliationReport
 from .realtime_queue import (
     BaseRealtimeQueue,
@@ -33,6 +35,7 @@ from .realtime_queue import (
 __all__ = [
     "AlertEvent",
     "AlertRouter",
+    "AccessDeniedError",
     "AlertSeverity",
     "AlertSink",
     "BaseRealtimeQueue",
@@ -52,8 +55,12 @@ __all__ = [
     "OrderRequest",
     "OrderStatusEvent",
     "QueueMessage",
+    "RBACPolicy",
+    "RedisDedupStore",
     "ReconciliationReport",
+    "SQLiteEventStore",
     "UnlockRequest",
+    "stable_event_key",
     "WebhookAlertSink",
     "broadcast",
     "drain_topic",

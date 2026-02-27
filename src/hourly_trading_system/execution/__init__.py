@@ -24,11 +24,13 @@ from .broker_adapters import (
     parse_ws_order_status_message,
 )
 from .broker_signers import AlpacaSigner, BinanceSpotSigner, IBKRGatewaySigner
+from .binance_replay import BinanceExecutionReplayClient, parse_binance_execution_report
 
 __all__ = [
     "BrokerWebSocketClient",
     "BrokerConnectionConfig",
     "BrokerKind",
+    "BinanceExecutionReplayClient",
     "CostBreakdown",
     "EMSClient",
     "ExecutionEngine",
@@ -48,6 +50,7 @@ __all__ = [
     "IBKRGatewayOMSAdapter",
     "IBKRGatewaySigner",
     "build_broker_oms_adapter",
+    "parse_binance_execution_report",
     "parse_ws_order_status_message",
     "apply_cost_to_price",
     "impact_eta_from_dollar_volume",

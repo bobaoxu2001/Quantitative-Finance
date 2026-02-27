@@ -8,6 +8,7 @@ from typing import Any
 import json
 
 from .contracts import now_utc
+from .rbac import RBACPolicy
 
 
 @dataclass(slots=True)
@@ -16,6 +17,7 @@ class UnlockRequest:
     reason: str
     requested_at: str
     approvals: list[str] = field(default_factory=list)
+    approval_records: list[dict[str, str]] = field(default_factory=list)
     finalized: bool = False
     finalized_by: str | None = None
     finalized_at: str | None = None
@@ -45,12 +47,25 @@ class LiveControlState:
 class LiveControlPlane:
     """File-backed control plane for operator actions in production."""
 
-    def __init__(self, state_path: str | Path, required_unlock_approvals: int = 2) -> None:
+    def __init__(
+        self,
+        state_path: str | Path,
+        required_unlock_approvals: int = 2,
+        rbac_policy: RBACPolicy | None = None,
+        enforce_rbac: bool = False,
+    ) -> None:
         self.state_path = Path(state_path)
         self.required_unlock_approvals = required_unlock_approvals
+        self.rbac_policy = rbac_policy or RBACPolicy()
+        self.enforce_rbac = enforce_rbac
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.state_path.exists():
             self._save(LiveControlState())
+
+    def _assert_role(self, action: str, actor_role: str | None) -> None:
+        if not self.enforce_rbac:
+            return
+        self.rbac_policy.assert_allowed(action=action, role=actor_role)
 
     def _save(self, state: LiveControlState) -> None:
         state.last_updated_at = now_utc().isoformat()
@@ -62,7 +77,8 @@ class LiveControlPlane:
             payload = json.load(handle)
         return LiveControlState.from_dict(payload)
 
-    def force_kill_switch(self, actor: str, reason: str) -> LiveControlState:
+    def force_kill_switch(self, actor: str, reason: str, actor_role: str | None = None) -> LiveControlState:
+        self._assert_role("force_kill_switch", actor_role)
         state = self.get_state()
         state.force_kill_switch = True
         state.kill_reason = reason
@@ -71,24 +87,34 @@ class LiveControlPlane:
         self._save(state)
         return state
 
-    def request_unlock(self, requestor: str, reason: str) -> LiveControlState:
+    def request_unlock(self, requestor: str, reason: str, actor_role: str | None = None) -> LiveControlState:
+        self._assert_role("request_unlock", actor_role)
         state = self.get_state()
         state.unlock_request = UnlockRequest(
             requestor=requestor,
             reason=reason,
             requested_at=now_utc().isoformat(),
             approvals=[],
+            approval_records=[],
             finalized=False,
         )
         self._save(state)
         return state
 
-    def approve_unlock(self, approver: str) -> LiveControlState:
+    def approve_unlock(self, approver: str, actor_role: str | None = None) -> LiveControlState:
+        self._assert_role("approve_unlock", actor_role)
         state = self.get_state()
         if state.unlock_request is None:
             raise ValueError("No unlock request found.")
         if approver not in state.unlock_request.approvals:
             state.unlock_request.approvals.append(approver)
+            state.unlock_request.approval_records.append(
+                {
+                    "approver": approver,
+                    "role": str(actor_role),
+                    "approved_at": now_utc().isoformat(),
+                }
+            )
         self._save(state)
         return state
 
@@ -98,7 +124,8 @@ class LiveControlPlane:
             return False
         return len(current.unlock_request.approvals) >= self.required_unlock_approvals
 
-    def finalize_unlock(self, actor: str) -> LiveControlState:
+    def finalize_unlock(self, actor: str, actor_role: str | None = None) -> LiveControlState:
+        self._assert_role("finalize_unlock", actor_role)
         state = self.get_state()
         if state.unlock_request is None:
             raise ValueError("No unlock request found.")

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from hourly_trading_system.live.contracts import FillEvent, OrderAck, OrderRequest, OrderStatusEvent, now_utc
 from .broker_signers import AlpacaSigner, BinanceSpotSigner, IBKRGatewaySigner
+from .binance_replay import parse_binance_execution_report
 
 from .broker_gateway import (
     HMACRequestSigner,
@@ -297,6 +298,10 @@ def parse_ws_order_status_message(message: dict[str, Any]) -> OrderStatusEvent |
 
     This function is intentionally schema-tolerant for template usage.
     """
+    parsed_binance = parse_binance_execution_report(message)
+    if parsed_binance is not None:
+        return parsed_binance
+
     event_type = str(message.get("event") or message.get("e") or "").lower()
     data = message.get("data", message)
     if event_type and "order" not in event_type and "execution" not in event_type and "fill" not in event_type:
