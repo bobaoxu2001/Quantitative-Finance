@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import os
 
-from hourly_trading_system.execution import BrokerWebSocketClient, HMACRequestSigner
+from hourly_trading_system.execution import (
+    BrokerWebSocketClient,
+    HMACRequestSigner,
+    parse_ws_order_status_message,
+)
 from hourly_trading_system.live import FileBackedRealtimeQueue, QueueMessage
 
 
@@ -15,6 +18,8 @@ def main() -> None:
     api_secret = os.environ.get("BROKER_API_SECRET", "")
     passphrase = os.environ.get("BROKER_API_PASSPHRASE")
     queue_path = os.environ.get("LIVE_QUEUE_PATH", "outputs/live_queue")
+    sequence_field = os.environ.get("BROKER_WS_SEQUENCE_FIELD", "sequence")
+    sequence_state_path = os.environ.get("BROKER_WS_SEQUENCE_STATE_PATH", "outputs/ws_sequence.state")
     if not ws_url or not api_key or not api_secret:
         raise RuntimeError("Set BROKER_WS_URL, BROKER_API_KEY, BROKER_API_SECRET")
 
@@ -22,18 +27,18 @@ def main() -> None:
     queue = FileBackedRealtimeQueue(queue_path)
 
     def on_message(message: dict) -> None:
+        parsed = parse_ws_order_status_message(message)
         queue.publish(
             QueueMessage(
                 topic="order_updates",
-                payload={"source": "ws", "message": message},
+                payload={"source": "ws", "raw": message, "parsed": parsed.to_dict() if parsed else None},
             )
         )
-        # Route explicit fill payload when available.
-        if message.get("event") == "fill":
+        if parsed and parsed.last_fill is not None:
             queue.publish(
                 QueueMessage(
                     topic="fills",
-                    payload=message.get("data", {}),
+                    payload=parsed.last_fill.to_dict(),
                 )
             )
 
@@ -49,8 +54,11 @@ def main() -> None:
             )
         )
 
-    def subscribe_msg() -> dict:
-        return {"op": "subscribe", "args": ["orders", "fills"]}
+    def subscribe_msg(last_sequence: int | None = None) -> dict:
+        payload = {"op": "subscribe", "args": ["orders", "fills"]}
+        if last_sequence is not None:
+            payload["resume_from_sequence"] = last_sequence
+        return payload
 
     client = BrokerWebSocketClient(
         ws_url=ws_url,
@@ -58,6 +66,9 @@ def main() -> None:
         on_message=on_message,
         on_error=on_error,
         subscribe_message_factory=subscribe_msg,
+        heartbeat_interval_seconds=15.0,
+        sequence_field=sequence_field,
+        sequence_state_path=sequence_state_path,
     )
     print("Starting broker WebSocket listener...")
     client.run_forever()

@@ -400,8 +400,11 @@ class BrokerWebSocketClient:
         signer: HMACRequestSigner,
         on_message: Callable[[dict[str, Any]], None],
         on_error: Callable[[Exception], None] | None = None,
-        subscribe_message_factory: Callable[[], dict[str, Any]] | None = None,
+        subscribe_message_factory: Callable[..., dict[str, Any]] | None = None,
         reconnect_max_attempts: int = 8,
+        heartbeat_interval_seconds: float = 15.0,
+        sequence_field: str | None = None,
+        sequence_state_path: str | Path | None = None,
     ) -> None:
         self.ws_url = ws_url
         self.signer = signer
@@ -409,6 +412,19 @@ class BrokerWebSocketClient:
         self.on_error = on_error
         self.subscribe_message_factory = subscribe_message_factory
         self.reconnect_max_attempts = reconnect_max_attempts
+        self.heartbeat_interval_seconds = heartbeat_interval_seconds
+        self.sequence_field = sequence_field
+        self.sequence_state_path = Path(sequence_state_path) if sequence_state_path else None
+        self.last_sequence: int | None = None
+        if self.sequence_state_path is not None:
+            self.sequence_state_path.parent.mkdir(parents=True, exist_ok=True)
+            if self.sequence_state_path.exists():
+                try:
+                    content = self.sequence_state_path.read_text(encoding="utf-8").strip()
+                    if content:
+                        self.last_sequence = int(content)
+                except Exception:
+                    self.last_sequence = None
         self._running = False
 
     def _auth_message(self) -> dict[str, Any]:
@@ -422,6 +438,41 @@ class BrokerWebSocketClient:
                 "passphrase": self.signer.passphrase,
             },
         }
+
+    def _persist_sequence(self) -> None:
+        if self.sequence_state_path is None or self.last_sequence is None:
+            return
+        self.sequence_state_path.write_text(str(self.last_sequence), encoding="utf-8")
+
+    def _subscribe_message(self) -> dict[str, Any] | None:
+        if self.subscribe_message_factory is None:
+            return None
+        try:
+            return self.subscribe_message_factory()  # type: ignore[misc]
+        except TypeError:
+            # Allow factory to accept resume sequence as optional arg.
+            return self.subscribe_message_factory(self.last_sequence)  # type: ignore[misc]
+
+    def _handle_sequence(self, message: dict[str, Any]) -> None:
+        if self.sequence_field is None:
+            return
+        seq_value = message.get(self.sequence_field)
+        if seq_value is None:
+            return
+        try:
+            sequence = int(seq_value)
+        except Exception:
+            return
+        if self.last_sequence is not None and sequence <= self.last_sequence:
+            return
+        if self.last_sequence is not None and sequence > self.last_sequence + 1 and self.on_error is not None:
+            self.on_error(
+                RuntimeError(
+                    f"WebSocket sequence gap: last={self.last_sequence}, current={sequence}"
+                )
+            )
+        self.last_sequence = sequence
+        self._persist_sequence()
 
     def run_forever(self) -> None:
         try:
@@ -437,15 +488,26 @@ class BrokerWebSocketClient:
             ws = None
             try:
                 ws = websocket.create_connection(self.ws_url, timeout=12)
+                ws.settimeout(1.0)
                 ws.send(json.dumps(self._auth_message()))
-                if self.subscribe_message_factory:
-                    ws.send(json.dumps(self.subscribe_message_factory()))
+                subscribe_message = self._subscribe_message()
+                if subscribe_message:
+                    ws.send(json.dumps(subscribe_message))
                 attempts = 0
+                last_heartbeat = time.time()
                 while self._running:
-                    raw = ws.recv()
+                    try:
+                        raw = ws.recv()
+                    except websocket.WebSocketTimeoutException:
+                        now = time.time()
+                        if now - last_heartbeat >= self.heartbeat_interval_seconds:
+                            ws.send(json.dumps({"op": "ping", "ts": int(now * 1000)}))
+                            last_heartbeat = now
+                        continue
                     if raw is None:
                         break
                     msg = json.loads(raw)
+                    self._handle_sequence(msg)
                     self.on_message(msg)
             except Exception as exc:  # pragma: no cover
                 attempts += 1

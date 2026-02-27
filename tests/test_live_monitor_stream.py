@@ -24,8 +24,16 @@ def test_live_queue_snapshot_reads_stream_topics(tmp_path) -> None:
             payload={"severity": "warning", "source": "live_runner", "message": "test-alert"},
         )
     )
+    queue.publish(
+        QueueMessage(
+            topic="tca",
+            payload={"summary": {"avg_total_cost_bps": 3.2}},
+        )
+    )
     snapshot = load_live_queue_snapshot(tmp_path / "queue")
     summary = summarize_live_snapshot(snapshot)
     assert summary["total_messages"] >= 2
     assert summary["latest_equity"] == 101000.0
     assert summary["recent_alerts"] >= 1
+    assert summary["health_score"] <= 100.0
+    assert summary["tca_avg_cost_bps"] == 3.2

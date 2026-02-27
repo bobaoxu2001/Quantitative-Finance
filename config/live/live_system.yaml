@@ -9,6 +9,7 @@ registry:
   root_dir: outputs/model_registry
 broker:
   mode: paper
+  kind: alpaca
   oms:
     submit_url: null
     cancel_url: null

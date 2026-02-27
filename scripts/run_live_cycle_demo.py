@@ -122,6 +122,7 @@ def main() -> None:
     print("Queue depth order_updates:", queue.size("order_updates"))
     print("Queue depth fills:", queue.size("fills"))
     print("Queue depth reconciliation:", queue.size("reconciliation"))
+    print("Queue depth tca:", queue.size("tca"))
 
 
 if __name__ == "__main__":

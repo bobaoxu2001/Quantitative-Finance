@@ -35,12 +35,15 @@ optimization constraints, and analytics/dashboard outputs.
 - Live production integration layer:
   - OMS/EMS adapter interfaces (paper + HTTP broker gateway)
   - signed REST adapter template (HMAC), retry policy, and idempotency keys
+  - multi-broker OMS templates (Alpaca/Binance spot/IBKR gateway)
   - WebSocket callback template for order status streams
+  - heartbeat + sequence checkpoint/resume for WS streams
   - real-time queue abstraction (in-memory + file-backed)
   - alert router (console/file/webhook)
   - model registry with approval workflow
   - champion/canary deployment, promotion, and rollback governance
   - fill reconciliation and broker-vs-expected break detection
+  - live TCA attribution (shortfall/fees/total cost bps) from order-to-fill linkage
   - kill-switch / circuit-breaker / limit protection guard rails
 
 ## Directory layout
@@ -66,6 +69,7 @@ scripts/
   run_live_cycle_demo.py
   run_live_monitor.py
   run_broker_ws_listener_template.py
+  run_live_from_config_template.py
   bootstrap_cloud_env.sh
 tests/
 ```
@@ -122,6 +126,7 @@ python3 scripts/run_live_cycle_demo.py
 streamlit run scripts/run_live_monitor.py
 ```
 Default queue path is `outputs/live_queue`.
+The monitor includes health score, queue depths, TCA summary, and a rollback control panel.
 
 ### Broker WebSocket listener template
 
@@ -135,6 +140,14 @@ Required environment variables:
 Optional:
 - `BROKER_API_PASSPHRASE`
 - `LIVE_QUEUE_PATH`
+- `BROKER_WS_SEQUENCE_FIELD` (default: `sequence`)
+- `BROKER_WS_SEQUENCE_STATE_PATH` (default: `outputs/ws_sequence.state`)
+
+### Build live runner from config template
+
+```bash
+python3 scripts/run_live_from_config_template.py
+```
 
 ### 7) Cloud environment bootstrap script
 

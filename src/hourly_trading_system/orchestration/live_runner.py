@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from hourly_trading_system.analytics import LiveTCAAttributor
 from hourly_trading_system.config import SystemConfig
 from hourly_trading_system.execution import EMSClient, OMSClient, PaperOMSClient
 from hourly_trading_system.execution.broker_gateway import OrderBatchResult
@@ -49,6 +50,7 @@ class LiveTradingRunner:
         ems_client: EMSClient | None = None,
         safety_guard: LiveSafetyGuard | None = None,
         reconciler: FillReconciler | None = None,
+        tca_attributor: LiveTCAAttributor | None = None,
         strategy_id: str = "hourly_system_live",
     ) -> None:
         self.config = config
@@ -61,6 +63,7 @@ class LiveTradingRunner:
         self.ems_client = ems_client
         self.safety_guard = safety_guard or LiveSafetyGuard()
         self.reconciler = reconciler or FillReconciler(cash=float(config.initial_capital))
+        self.tca_attributor = tca_attributor or LiveTCAAttributor()
         self.strategy_id = strategy_id
         self.current_positions: dict[str, float] = {}
         self.cash: float = float(config.initial_capital)
@@ -184,6 +187,7 @@ class LiveTradingRunner:
                     metadata={
                         "target_weight": float(target_weights.get(symbol, 0.0)),
                         "reference_price": price,
+                        "decision_time": decision_time.isoformat(),
                     },
                 )
             )
@@ -214,15 +218,28 @@ class LiveTradingRunner:
     def _apply_status_updates(self) -> list[dict[str, Any]]:
         updates = self.oms_client.poll_order_updates(strategy_id=self.strategy_id, max_events=500)
         payloads: list[dict[str, Any]] = []
+        tca_rows: list[dict[str, Any]] = []
         for event in updates:
             self.reconciler.apply_status(event)
             payloads.append(event.to_dict())
+            tca_row = self.tca_attributor.on_status(event)
+            if tca_row is not None:
+                tca_rows.append(tca_row.to_dict())
             if event.last_fill is not None:
                 self._publish_event("fills", event.last_fill.to_dict())
         if payloads:
             self._publish_event(
                 "order_updates",
                 {"count": len(payloads), "events": payloads},
+            )
+        if tca_rows:
+            self._publish_event(
+                "tca",
+                {
+                    "count": len(tca_rows),
+                    "rows": tca_rows,
+                    "summary": self.tca_attributor.summary(last_n=200),
+                },
             )
         return payloads
 
@@ -367,6 +384,7 @@ class LiveTradingRunner:
             )
 
         self.reconciler.register_submissions(requests=orders, acknowledgements=batch.acks)
+        self.tca_attributor.register_submissions(requests=orders, acknowledgements=batch.acks)
         accepted_cids = {ack.client_order_id for ack in batch.acks if ack.accepted and ack.client_order_id}
         for order in orders:
             if order.client_order_id in accepted_cids:
