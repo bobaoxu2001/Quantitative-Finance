@@ -70,6 +70,14 @@ class HourlyBacktestEngine:
         dataset = feature_panel.merge(label_panel, on=["symbol", "event_time"], how="inner")
         train = dataset.loc[dataset["event_time"] <= train_end].copy()
         train = train.dropna(subset=["target_excess_return", "target_downside_event"])
+        if train.empty:
+            # Fallback when configured train_end predates available observations.
+            cutoff = max(int(len(dataset) * 0.6), 1)
+            train = dataset.sort_values("event_time").iloc[:cutoff].dropna(
+                subset=["target_excess_return", "target_downside_event"]
+            )
+        if train.empty:
+            raise ValueError("No valid training rows after label alignment and filtering.")
         feature_cols = [col for col in required_features() if col in train.columns]
         self.model.fit(
             train[["symbol", "event_time", *feature_cols]],
@@ -186,7 +194,13 @@ class HourlyBacktestEngine:
             pred = self.model.predict(features_t).to_frame()
             signal_records.append(pred.assign(signal_time=t))
 
-            market_snapshot = market_t[["symbol", "close", "volume", "sector", "rv_20h"]].copy()
+            rv_slice = feature_panel.loc[
+                (feature_panel["event_time"] == t) & (feature_panel["symbol"].isin(market_t["symbol"])),
+                ["symbol", "rv_20h"],
+            ].copy()
+            market_snapshot = market_t[["symbol", "close", "volume", "sector"]].merge(
+                rv_slice, on="symbol", how="left"
+            )
             decision = self.allocator.allocate(
                 timestamp=t,
                 predictions=pred,
