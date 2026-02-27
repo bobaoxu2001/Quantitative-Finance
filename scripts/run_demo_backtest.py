@@ -17,7 +17,7 @@ from hourly_trading_system.risk import RiskController
 
 
 def _hourly_market_calendar(start: str, end: str) -> pd.DatetimeIndex:
-    idx = pd.date_range(start=start, end=end, freq="H", tz="UTC")
+    idx = pd.date_range(start=start, end=end, freq="h", tz="UTC")
     # Keep common US cash-market active hours approximation: 14:00-20:00 UTC.
     return idx[(idx.hour >= 14) & (idx.hour <= 20) & (idx.dayofweek < 5)]
 

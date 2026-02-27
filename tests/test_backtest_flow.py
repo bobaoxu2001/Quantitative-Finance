@@ -16,7 +16,7 @@ def _make_minimal_market() -> tuple[pd.DataFrame, pd.DataFrame]:
     rng = np.random.default_rng(123)
     symbols = ["SPY", "AAPL", "MSFT", "XOM"]
     sectors = {"SPY": "ETF", "AAPL": "TECH", "MSFT": "TECH", "XOM": "ENERGY"}
-    times = pd.date_range("2025-09-01", periods=180, freq="H", tz="UTC")
+    times = pd.date_range("2025-09-01", periods=180, freq="h", tz="UTC")
     times = times[(times.hour >= 14) & (times.hour <= 20) & (times.dayofweek < 5)]
     rows = []
     for sym in symbols:

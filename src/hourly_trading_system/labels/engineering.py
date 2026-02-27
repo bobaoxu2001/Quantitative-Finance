@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from hourly_trading_system.time_utils import to_utc_timestamp
+
 
 def build_labels(
     market: pd.DataFrame,
@@ -75,14 +77,14 @@ def train_validation_test_split(
     """Split a frame into train/validation/test by event_time."""
     out = frame.copy()
     out["event_time"] = pd.to_datetime(out["event_time"], utc=True)
-    train = out.loc[out["event_time"] <= pd.Timestamp(train_end, tz="UTC")]
+    train = out.loc[out["event_time"] <= to_utc_timestamp(train_end)]
     val = out.loc[
-        (out["event_time"] >= pd.Timestamp(val_start, tz="UTC"))
-        & (out["event_time"] <= pd.Timestamp(val_end, tz="UTC"))
+        (out["event_time"] >= to_utc_timestamp(val_start))
+        & (out["event_time"] <= to_utc_timestamp(val_end))
     ]
     test = out.loc[
-        (out["event_time"] >= pd.Timestamp(test_start, tz="UTC"))
-        & (out["event_time"] <= pd.Timestamp(test_end, tz="UTC"))
+        (out["event_time"] >= to_utc_timestamp(test_start))
+        & (out["event_time"] <= to_utc_timestamp(test_end))
     ]
     return {"train": train.copy(), "validation": val.copy(), "test": test.copy()}
 

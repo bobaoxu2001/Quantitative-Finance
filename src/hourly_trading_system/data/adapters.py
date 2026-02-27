@@ -9,6 +9,8 @@ from typing import Any
 
 import pandas as pd
 
+from hourly_trading_system.time_utils import to_utc_timestamp
+
 from .contracts import validate_time_contract
 
 
@@ -49,9 +51,9 @@ class CSVAdapter(BaseDataAdapter):
 
         mask = pd.Series(True, index=frame.index)
         if start is not None:
-            mask &= frame["event_time"] >= pd.Timestamp(start, tz="UTC")
+            mask &= frame["event_time"] >= to_utc_timestamp(start)
         if end is not None:
-            mask &= frame["event_time"] <= pd.Timestamp(end, tz="UTC")
+            mask &= frame["event_time"] <= to_utc_timestamp(end)
         if symbols is not None and "symbol" in frame.columns:
             mask &= frame["symbol"].isin(symbols)
         return frame.loc[mask].copy()

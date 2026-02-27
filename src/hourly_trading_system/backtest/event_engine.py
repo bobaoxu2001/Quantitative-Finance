@@ -16,6 +16,7 @@ from hourly_trading_system.labels.engineering import build_labels
 from hourly_trading_system.models.base import BaseSignalModel
 from hourly_trading_system.portfolio.optimizer import HourlyPortfolioAllocator
 from hourly_trading_system.risk.controls import RiskController
+from hourly_trading_system.time_utils import to_utc_timestamp
 
 
 @dataclass(slots=True)
@@ -111,16 +112,16 @@ class HourlyBacktestEngine:
             horizon_hours=5,
             downside_threshold=0.015,
         )
-        fit_until = pd.Timestamp(train_end, tz="UTC") if train_end else pd.Timestamp(
-            self.config.backtest_window.train_end, tz="UTC"
-        )
+        fit_until = to_utc_timestamp(train_end) if train_end else to_utc_timestamp(self.config.backtest_window.train_end)
         self._fit_model(feature_panel, labels, train_end=fit_until)
 
         times = sorted(feature_panel["event_time"].unique())
         if start is not None:
-            times = [t for t in times if t >= pd.Timestamp(start, tz="UTC")]
+            start_ts = to_utc_timestamp(start)
+            times = [t for t in times if t >= start_ts]
         if end is not None:
-            times = [t for t in times if t <= pd.Timestamp(end, tz="UTC")]
+            end_ts = to_utc_timestamp(end)
+            times = [t for t in times if t <= end_ts]
         if len(times) < 2:
             raise ValueError("Backtest period requires at least 2 timestamps")
 
@@ -139,8 +140,8 @@ class HourlyBacktestEngine:
 
         feature_cols = [col for col in required_features() if col in feature_panel.columns]
         for idx in range(len(times) - 1):
-            t = pd.Timestamp(times[idx], tz="UTC")
-            t_next = pd.Timestamp(times[idx + 1], tz="UTC")
+            t = to_utc_timestamp(times[idx])
+            t_next = to_utc_timestamp(times[idx + 1])
 
             market_t = market.loc[market["event_time"] == t].copy()
             market_next = market.loc[market["event_time"] == t_next].copy()

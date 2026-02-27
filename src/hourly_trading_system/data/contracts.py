@@ -50,7 +50,11 @@ def enforce_information_set(frame: pd.DataFrame, decision_time: datetime) -> pd.
     """
     if frame.empty:
         return frame.copy()
-    decision_ts = pd.Timestamp(decision_time, tz="UTC")
+    decision_ts = pd.Timestamp(decision_time)
+    if decision_ts.tzinfo is None:
+        decision_ts = decision_ts.tz_localize("UTC")
+    else:
+        decision_ts = decision_ts.tz_convert("UTC")
     dtf = frame.copy()
     dtf["known_time"] = pd.to_datetime(dtf["known_time"], utc=True)
     return dtf.loc[dtf["known_time"] < decision_ts].copy()

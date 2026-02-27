@@ -11,6 +11,7 @@ import pandas as pd
 from hourly_trading_system.backtest import BacktestArtifacts, HourlyBacktestEngine
 from hourly_trading_system.config import SystemConfig
 from hourly_trading_system.data import AdapterRegistry
+from hourly_trading_system.time_utils import to_utc_timestamp
 
 
 @dataclass(slots=True)
@@ -49,8 +50,8 @@ class TradingPipeline:
 
     def run_research_backtest(self, start: str, end: str) -> BacktestArtifacts:
         payload = self.load_data(
-            start=pd.Timestamp(start, tz="UTC").to_pydatetime(),
-            end=pd.Timestamp(end, tz="UTC").to_pydatetime(),
+            start=to_utc_timestamp(start).to_pydatetime(),
+            end=to_utc_timestamp(end).to_pydatetime(),
             symbols=None,
         )
         required = {"market"}

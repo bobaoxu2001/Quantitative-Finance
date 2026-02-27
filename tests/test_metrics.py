@@ -7,7 +7,7 @@ from hourly_trading_system.analytics import compute_performance_report
 
 
 def test_compute_performance_report_outputs_required_metrics() -> None:
-    times = pd.date_range("2026-01-01", periods=120, freq="H", tz="UTC")
+    times = pd.date_range("2026-01-01", periods=120, freq="h", tz="UTC")
     returns = pd.Series(np.random.default_rng(1).normal(0.0002, 0.003, len(times)))
     equity = 100_000 * (1 + returns).cumprod()
     curve = pd.DataFrame({"event_time": times, "equity": equity.values})
