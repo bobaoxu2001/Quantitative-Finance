@@ -81,9 +81,9 @@ def test_backtest_engine_runs_end_to_end() -> None:
     result = engine.run(
         market=market,
         membership=membership,
-        start="2025-10-01",
-        end="2025-12-15",
-        train_end="2025-09-30",
+        start="2025-09-02",
+        end="2025-09-05",
+        train_end="2025-09-01",
     )
     assert not result.equity_curve.empty
     assert "max_drawdown" in result.performance.summary
