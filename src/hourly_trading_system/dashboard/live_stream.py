@@ -104,6 +104,14 @@ def compute_health_score(snapshot: LiveQueueSnapshot) -> float:
 
 
 def summarize_live_snapshot(snapshot: LiveQueueSnapshot) -> dict[str, Any]:
+    def _native(value: Any) -> Any:
+        if hasattr(value, "item"):
+            try:
+                return value.item()
+            except Exception:
+                return value
+        return value
+
     summary: dict[str, Any] = {
         "total_messages": int(sum(snapshot.queue_depths.values())),
         "topics": snapshot.queue_depths,
@@ -118,14 +126,14 @@ def summarize_live_snapshot(snapshot: LiveQueueSnapshot) -> dict[str, Any]:
     }
     if not snapshot.orders.empty:
         latest = snapshot.orders.sort_values("topic_timestamp").tail(1).iloc[0]
-        summary["latest_decision_time"] = latest.get("payload.decision_time")
-        summary["latest_equity"] = latest.get("payload.equity")
-        summary["latest_orders_sent"] = latest.get("payload.orders_sent")
-        summary["latest_orders_rejected"] = latest.get("payload.orders_rejected")
-        summary["kill_switch"] = latest.get("payload.kill_switch")
+        summary["latest_decision_time"] = _native(latest.get("payload.decision_time"))
+        summary["latest_equity"] = _native(latest.get("payload.equity"))
+        summary["latest_orders_sent"] = _native(latest.get("payload.orders_sent"))
+        summary["latest_orders_rejected"] = _native(latest.get("payload.orders_rejected"))
+        summary["kill_switch"] = _native(latest.get("payload.kill_switch"))
     if not snapshot.alerts.empty:
         summary["recent_alerts"] = int(len(snapshot.alerts.tail(20)))
     if not snapshot.tca.empty:
         val = snapshot.tca.sort_values("topic_timestamp").tail(1).iloc[0].get("payload.summary.avg_total_cost_bps")
-        summary["tca_avg_cost_bps"] = val
+        summary["tca_avg_cost_bps"] = _native(val)
     return summary
