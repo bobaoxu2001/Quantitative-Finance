@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -21,9 +22,6 @@ from hourly_trading_system.models import FactorLightGBMBaseline
 from hourly_trading_system.portfolio import HourlyPortfolioAllocator
 from hourly_trading_system.risk import RiskController
 from run_demo_backtest import make_synthetic_market_data
-
-
-OUT_DIR = Path("outputs/v2_comparison")
 
 
 @dataclass(slots=True)
@@ -199,7 +197,16 @@ def _plot_key_metrics(comparison_df: pd.DataFrame, output_path: Path) -> None:
 
 
 def main() -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    parser = argparse.ArgumentParser(description="Run baseline vs aggressive-v2 comparison.")
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path("outputs/v2_comparison"),
+        help="Directory for comparison artifacts.",
+    )
+    args = parser.parse_args()
+    out_dir = args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     baseline_artifacts, baseline_result = _run_profile(profile_name="baseline")
     aggressive_artifacts, aggressive_result = _run_profile(
@@ -222,12 +229,12 @@ def main() -> None:
     )
 
     comparison_df = _build_comparison_df(baseline_result, aggressive_result)
-    comparison_df.to_csv(OUT_DIR / "metrics_comparison.csv", index=False)
+    comparison_df.to_csv(out_dir / "metrics_comparison.csv", index=False)
 
     baseline_curve = _to_equity_series(baseline_artifacts, "baseline")
     aggressive_curve = _to_equity_series(aggressive_artifacts, "aggressive_v2")
     equity_df = pd.concat([baseline_curve, aggressive_curve], axis=1)
-    equity_df.to_csv(OUT_DIR / "equity_curves.csv")
+    equity_df.to_csv(out_dir / "equity_curves.csv")
 
     baseline_dd = baseline_curve / baseline_curve.cummax() - 1.0
     aggressive_dd = aggressive_curve / aggressive_curve.cummax() - 1.0
@@ -242,13 +249,13 @@ def main() -> None:
         go.Scatter(x=aggressive_dd.index, y=aggressive_dd, name="Aggressive v2 DD"), row=2, col=1
     )
     fig_equity.update_layout(title="Baseline vs Aggressive v2 - Equity and Drawdown")
-    _save_figure(fig_equity, OUT_DIR / "equity_drawdown_comparison.png")
+    _save_figure(fig_equity, out_dir / "equity_drawdown_comparison.png")
 
     exposure_df = pd.concat(
         [_to_exposure_series(baseline_artifacts, "baseline"), _to_exposure_series(aggressive_artifacts, "aggressive_v2")],
         axis=1,
     ).dropna(how="all")
-    exposure_df.to_csv(OUT_DIR / "exposure_series.csv")
+    exposure_df.to_csv(out_dir / "exposure_series.csv")
     fig_exposure = go.Figure()
     fig_exposure.add_trace(go.Scatter(x=exposure_df.index, y=exposure_df["baseline"], name="Baseline exposure"))
     fig_exposure.add_trace(
@@ -259,9 +266,9 @@ def main() -> None:
         yaxis_title="Exposure (0-1)",
         xaxis_title="Time",
     )
-    _save_figure(fig_exposure, OUT_DIR / "exposure_comparison.png")
+    _save_figure(fig_exposure, out_dir / "exposure_comparison.png")
 
-    _plot_key_metrics(comparison_df, OUT_DIR / "key_metrics_comparison.png")
+    _plot_key_metrics(comparison_df, out_dir / "key_metrics_comparison.png")
 
     payload = {
         "baseline": asdict(baseline_result),
@@ -272,10 +279,10 @@ def main() -> None:
         "delta_test_exposure": aggressive_result.test_summary.get("exposure_pct", float("nan"))
         - baseline_result.test_summary.get("exposure_pct", float("nan")),
     }
-    with (OUT_DIR / "summary.json").open("w", encoding="utf-8") as handle:
+    with (out_dir / "summary.json").open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, default=str)
 
-    print("Saved comparison outputs to", OUT_DIR)
+    print("Saved comparison outputs to", out_dir)
     print(comparison_df.to_string(index=False))
 
 
