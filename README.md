@@ -74,6 +74,8 @@ scripts/
   run_live_monitor.py
   run_broker_ws_listener_template.py
   run_live_from_config_template.py
+  run_live_hourly_loop.py
+  generate_model_result_dashboard.py
   run_production_preflight.py
   run_preflight.sh
 deploy/
@@ -169,6 +171,20 @@ Optional:
 python3 scripts/run_live_from_config_template.py
 ```
 
+### Scheduled hourly live loop
+
+Single cycle:
+
+```bash
+python3 scripts/run_live_hourly_loop.py --mode synthetic --once
+```
+
+Bounded loop (for staging):
+
+```bash
+python3 scripts/run_live_hourly_loop.py --mode synthetic --max-cycles 3
+```
+
 ### Deployment templates
 
 See:
@@ -185,6 +201,16 @@ bash scripts/run_preflight.sh
 This runs:
 - config + environment preflight (`scripts/run_production_preflight.py`)
 - smoke tests for control plane and live execution extensions.
+
+### Generate result dashboard artifact (HTML + summary JSON)
+
+```bash
+python3 scripts/generate_model_result_dashboard.py
+```
+Outputs:
+- `outputs/model_result_dashboard.html`
+- `outputs/model_result_summary.json`
+- optionally `outputs/equity_drawdown.png` (if image backend is available)
 
 ### 7) Cloud environment bootstrap script
 
