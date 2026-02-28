@@ -77,6 +77,7 @@ scripts/
   run_live_hourly_loop.py
   generate_model_result_dashboard.py
   generate_public_quant_comparison_charts.py
+  run_aggressive_v2_comparison.py
   run_production_preflight.py
   run_preflight.sh
 deploy/
@@ -249,6 +250,64 @@ Conclusion (for this test run): **successful** under the stated risk constraints
 > treated as a reproducible research baseline. For production sign-off, rerun
 > with institution-approved market/fundamental/sentiment feeds and full broker
 > connectivity.
+
+## Aggressive v2 (进攻版) rollout snapshot
+
+To address low capital utilization in baseline mode, this repository now includes
+an aggressive-v2 profile that increases deployment intensity while preserving
+long-only and single-name cap controls.
+
+### What changed in v2
+
+1. Allocator supports aggressive controls:
+   - optional non-positive-score allocation (rank-preserving score shift),
+   - score concentration via `score_power`,
+   - exposure floor (`min_total_exposure`),
+   - optional top-quantile filtering.
+2. Aggressive v2 profile settings in comparison runner:
+   - `max_turnover_per_rebalance = 0.80` (from 0.25),
+   - `max_sector_weight = 0.45` (from 0.30),
+   - `min_dollar_volume = 1,000,000` (from 2,000,000),
+   - allocator kwargs: `downside_penalty=0.12`, `cost_penalty=0.05`,
+     `require_positive_scores=False`, `score_power=1.6`,
+     `min_total_exposure=0.75`.
+
+### Reproduce baseline vs v2 comparison
+
+```bash
+python3 scripts/run_aggressive_v2_comparison.py --out-dir docs/assets/v2_comparison
+```
+
+Generated artifacts:
+- `docs/assets/v2_comparison/summary.json`
+- `docs/assets/v2_comparison/metrics_comparison.csv`
+- `docs/assets/v2_comparison/equity_drawdown_comparison.png`
+- `docs/assets/v2_comparison/exposure_comparison.png`
+- `docs/assets/v2_comparison/key_metrics_comparison.png`
+
+### Test-window comparison (2026-01-01 to 2026-02-26)
+
+| Metric | Baseline | Aggressive v2 | Delta |
+|---|---:|---:|---:|
+| Total return | 1.0750% | 4.2617% | +3.1867% |
+| CAGR | 6.4550% | 27.6531% | +21.1980% |
+| Annualized volatility | 4.0417% | 8.3791% | +4.3374% |
+| Sharpe | 1.5679 | 2.9559 | +1.3879 |
+| Max drawdown | 1.3627% | 2.5618% | +1.1991% |
+| Exposure | 25.0452% | 75.0000% | +49.9548% |
+| Turnover | 0.0794 | 0.0889 | +0.0095 |
+
+### Visuals
+
+![Aggressive v2 equity and drawdown comparison](docs/assets/v2_comparison/equity_drawdown_comparison.png)
+
+![Aggressive v2 exposure comparison](docs/assets/v2_comparison/exposure_comparison.png)
+
+![Aggressive v2 key metrics comparison](docs/assets/v2_comparison/key_metrics_comparison.png)
+
+**Interpretation:** in this synthetic test, v2 materially improves absolute and
+risk-adjusted returns by increasing exposure utilization from ~25% to ~75%,
+with a higher but still controlled drawdown profile.
 
 ## Public quant model comparison (公开案例：量化模型能做到多少钱)
 
