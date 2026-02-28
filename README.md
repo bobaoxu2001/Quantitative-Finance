@@ -97,7 +97,13 @@ pip install -e ".[dev]"
 Optional extras:
 
 ```bash
-pip install -e ".[dashboard,ml]"
+pip install -e ".[dashboard,live,ml]"
+```
+
+Cloud default environment command:
+
+```bash
+python3 -m pip install -e ".[dev,dashboard,live]"
 ```
 
 ### 2) Run end-to-end demo

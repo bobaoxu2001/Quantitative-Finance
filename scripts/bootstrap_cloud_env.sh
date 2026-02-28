@@ -8,7 +8,7 @@ cd "$WORKDIR"
 export PATH="$HOME/.local/bin:$PATH"
 
 python3 -m pip install --upgrade pip
-python3 -m pip install -e ".[dev]"
+python3 -m pip install -e ".[dev,dashboard,live]"
 
 echo "Environment bootstrap complete."
 echo "python3: $(python3 --version)"
