@@ -48,10 +48,18 @@ class HourlyPortfolioAllocator:
         config: PortfolioConfig,
         downside_penalty: float = 0.4,
         cost_penalty: float = 0.2,
+        require_positive_scores: bool = True,
+        selection_quantile: float = 0.0,
+        score_power: float = 1.0,
+        min_total_exposure: float = 0.0,
     ) -> None:
         self.config = config
         self.downside_penalty = downside_penalty
         self.cost_penalty = cost_penalty
+        self.require_positive_scores = require_positive_scores
+        self.selection_quantile = float(np.clip(selection_quantile, 0.0, 1.0))
+        self.score_power = max(float(score_power), 0.1)
+        self.min_total_exposure = float(np.clip(min_total_exposure, 0.0, 1.0))
 
     def allocate(
         self,
@@ -110,7 +118,8 @@ class HourlyPortfolioAllocator:
             - self.cost_penalty * merged["est_cost_score"]
         )
         merged = merged.sort_values("score", ascending=False)
-        merged = merged.loc[merged["score"] > 0.0]
+        if self.require_positive_scores:
+            merged = merged.loc[merged["score"] > 0.0]
         if merged.empty:
             return PortfolioDecision(
                 timestamp=timestamp,
@@ -121,12 +130,26 @@ class HourlyPortfolioAllocator:
                 reason="all_scores_negative",
             )
 
-        raw = merged.set_index("symbol")["score"]
+        if self.selection_quantile > 0.0:
+            score_cutoff = float(merged["score"].quantile(self.selection_quantile))
+            selected = merged.loc[merged["score"] >= score_cutoff].copy()
+            if selected.empty:
+                selected = merged.head(1).copy()
+        else:
+            selected = merged.copy()
+
+        raw = selected.set_index("symbol")["score"].astype(float)
+        if not self.require_positive_scores:
+            # In aggressive mode we preserve ranking even when absolute score
+            # levels are negative by shifting scores into strictly positive space.
+            raw = raw - float(raw.min()) + 1e-9
+        if self.score_power != 1.0:
+            raw = raw.pow(self.score_power)
         raw_weights = raw / raw.sum()
         raw_weights = _cap_and_redistribute(raw_weights, self.config.max_position_weight)
 
         # Soft sector control.
-        sectors = merged.set_index("symbol")["sector"]
+        sectors = selected.set_index("symbol")["sector"]
         sector_weight = raw_weights.groupby(sectors).sum()
         for sector, weight in sector_weight.items():
             if weight <= self.config.max_sector_weight:
@@ -142,7 +165,7 @@ class HourlyPortfolioAllocator:
             raw_weights = _cap_and_redistribute(raw_weights, self.config.max_position_weight)
 
         # Volatility scaling to keep within target band without leverage.
-        per_asset_vol = merged.set_index("symbol")["rv_20h"].replace(0.0, np.nan).fillna(0.03)
+        per_asset_vol = selected.set_index("symbol")["rv_20h"].replace(0.0, np.nan).fillna(0.03)
         estimated_portfolio_vol = float(np.sqrt(np.sum((raw_weights * per_asset_vol) ** 2)) * np.sqrt(252 * 6.5))
         target_mid = (self.config.target_vol_lower + self.config.target_vol_upper) / 2
         if estimated_portfolio_vol > self.config.target_vol_upper and estimated_portfolio_vol > 0:
@@ -156,6 +179,14 @@ class HourlyPortfolioAllocator:
         raw_weights = raw_weights.clip(lower=0.0, upper=self.config.max_position_weight)
         if raw_weights.sum() > 1.0:
             raw_weights = raw_weights / raw_weights.sum()
+        # Exposure floor supports aggressive profiles while still respecting
+        # current risk regime through the risk_scaler multiplier.
+        effective_min_exposure = min(self.min_total_exposure * risk_scaler, 1.0)
+        if 0.0 < raw_weights.sum() < effective_min_exposure:
+            floor_scale = effective_min_exposure / max(float(raw_weights.sum()), 1e-9)
+            raw_weights = (raw_weights * floor_scale).clip(upper=self.config.max_position_weight)
+            raw_weights = _cap_and_redistribute(raw_weights, self.config.max_position_weight)
+            raw_weights *= min(effective_min_exposure, 1.0) / max(float(raw_weights.sum()), 1e-9)
 
         # Turnover control using blend with existing weights.
         current = current_weights.reindex(raw_weights.index).fillna(0.0)
