@@ -76,12 +76,17 @@ scripts/
   run_live_from_config_template.py
   run_live_hourly_loop.py
   generate_model_result_dashboard.py
+  generate_public_quant_comparison_charts.py
   run_production_preflight.py
   run_preflight.sh
 deploy/
   kubernetes/     # CronJob + monitor deployment templates
   airflow/        # DAG template
   systemd/        # service/timer templates
+docs/
+  public_quant_model_comparison.csv
+  PUBLIC_QUANT_COMPARISON_SOURCES.md
+  assets/         # README comparison figures
   bootstrap_cloud_env.sh
 tests/
 ```
@@ -244,6 +249,70 @@ Conclusion (for this test run): **successful** under the stated risk constraints
 > treated as a reproducible research baseline. For production sign-off, rerun
 > with institution-approved market/fundamental/sentiment feeds and full broker
 > connectivity.
+
+## Public quant model comparison (公开案例：量化模型能做到多少钱)
+
+This section adds **publicly reported** quant-fund benchmarks for scale context.
+
+- Raw comparison data: `docs/public_quant_model_comparison.csv`
+- Source mapping and caveats: `docs/PUBLIC_QUANT_COMPARISON_SOURCES.md`
+- Regenerate charts:
+
+```bash
+python3 scripts/generate_public_quant_comparison_charts.py
+```
+
+### Visual comparison (more intuitive)
+
+**1) Annualized return (%)**
+
+![Public quant annualized return comparison](docs/assets/public_quant_returns.png)
+
+**2) AUM / strategy capacity (USD bn, log scale)**
+
+![Public quant AUM comparison](docs/assets/public_quant_aum.png)
+
+**3) Rough annual dollar profit potential = AUM x annualized return**
+
+![Public quant estimated annual profit comparison](docs/assets/public_quant_estimated_profit.png)
+
+**4) Publicly reported cumulative net gains to investors (USD bn)**
+
+![Public quant cumulative investor gains comparison](docs/assets/public_quant_cumulative_gains.png)
+
+**5) Return vs scale scatter (bubble = cumulative gains if available)**
+
+![Public quant return vs scale](docs/assets/public_quant_return_vs_scale.png)
+
+### Quick numeric comparison (rough, educational)
+
+| Model / strategy | Annualized return | AUM / capacity | Rough annual scale PnL (AUM x return) | Public cumulative net gains |
+|---|---:|---:|---:|---:|
+| Renaissance Medallion (closed) | 39.1% | 10.0 bn | 3.91 bn/yr | n/a |
+| Citadel Wellington | 19.5% | n/a | n/a | 83.0 bn |
+| D.E. Shaw Composite | 12.9% | 33.4 bn | 4.31 bn/yr | 67.2 bn |
+| Millennium platform | 14.0% | 83.4 bn | 11.68 bn/yr | 65.5 bn |
+| Bridgewater Pure Alpha | 13.0% | 81.0 bn | 10.53 bn/yr | n/a |
+| iShares MTUM ETF | 13.42% | 10.41 bn | 1.40 bn/yr | n/a |
+| AQR Managed Futures Strategy Fund | 3.17% | 1.722 bn | 0.055 bn/yr | n/a |
+| Man AHL Diversified Class A USD | 3.84% | 0.130 bn | 0.005 bn/yr | n/a |
+| **This repository hourly strategy (demo)** | **6.30%** | **0.0001 bn** | **0.000006 bn/yr (~$6.3k/yr)** | n/a |
+
+### Interpretation for this repository
+
+- Your current model has positive risk-adjusted results in the test window.
+- The biggest gap versus top institutions is **not only model alpha**, but also
+  **deployable capital scale + execution infrastructure + strategy capacity**.
+- If your target is "make more money", the roadmap is usually:
+  1. improve robustness across regimes,
+  2. raise capital/capacity safely,
+  3. keep drawdown and slippage stable while scaling.
+
+> Important comparability caveat:
+> these figures mix private hedge funds, public ETFs/mutual funds, and one
+> open-source demo strategy; time windows, fees, lockups, leverage, and
+> investability are different. Treat this as **context benchmarking**, not an
+> apples-to-apples ranking or investment advice.
 
 ### 7) Cloud environment bootstrap script
 

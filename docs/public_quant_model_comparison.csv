@@ -1,0 +1,10 @@
+name,category,strategy_family,annualized_return_pct,aum_or_capacity_usd_bn,cumulative_net_gains_usd_bn,period_basis,data_quality,source_key
+Renaissance Medallion (closed),Private hedge fund,Short-horizon statistical arbitrage,39.1,10.0,,1988-2018 net annualized (publicly reported),estimated,medallion_book_cornell
+Citadel Wellington,Private hedge fund,Multi-strategy (quant + discretionary),19.5,,83.0,Since 1990 (publicly reported),estimated,lch_forbes_2024
+D.E. Shaw Composite,Private hedge fund,Systematic + discretionary multi-strategy,12.9,33.4,67.2,Since 2001 annualized / lifetime gains via LCH,estimated,reuters_deshaw_2026_lch
+Millennium platform,Private hedge fund,Pod-based multi-strategy,14.0,83.4,65.5,Since 1989 annualized / lifetime gains via LCH,estimated,lch_forbes_2024
+Bridgewater Pure Alpha,Private hedge fund,Global macro systematic,13.0,81.0,,Since 1991 public long-run estimate,estimated,pionline_bridgewater_2015
+iShares MTUM ETF,Public ETF,Equity momentum factor,13.42,10.41,,10Y annualized to 2024-03,verified,ishares_mtum_factsheet_2024
+AQR Managed Futures Strategy Fund,Public mutual fund,Systematic managed futures,3.17,1.722,,Since inception annualized to 2025-03,verified,aqr_managed_futures_2025
+Man AHL Diversified Class A USD,Public fund,Systematic trend following,3.84,0.130,,Since inception annualized (share class),estimated,man_ahl_shareclass_public
+This repository hourly strategy (demo),Open-source model,Hourly long-only equity allocation,6.30,0.0001,,2026-01-01 to 2026-02-26 test CAGR,verified,this_repo_test_snapshot
