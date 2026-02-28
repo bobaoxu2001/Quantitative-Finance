@@ -94,7 +94,12 @@ def _monthly_heatmap(monthly_returns: pd.DataFrame) -> go.Figure:
 def _live_queue_figure(queue_dir: Path) -> go.Figure:
     snapshot = load_live_queue_snapshot(queue_dir)
     summary = summarize_live_snapshot(snapshot)
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("Queue Depths", "Health Score / TCA"))
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("Queue Depths", "Health Score / TCA"),
+        specs=[[{"type": "xy"}, {"type": "domain"}]],
+    )
     topics = summary["topics"]
     fig.add_trace(
         go.Bar(x=list(topics.keys()), y=list(topics.values()), name="Queue Depth"),
