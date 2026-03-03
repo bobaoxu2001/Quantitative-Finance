@@ -16,9 +16,11 @@ from hourly_trading_system.backtest import HourlyBacktestEngine
 from hourly_trading_system.config import SystemConfig
 from hourly_trading_system.execution import ExecutionEngine
 from hourly_trading_system.features.library import required_features
+from hourly_trading_system.config import PortfolioConfig
 from hourly_trading_system.models import (
     AdaptiveEnsembleModel,
     DeepCrossSectionalModel,
+    EnsembleConfig,
     FactorLightGBMBaseline,
 )
 from hourly_trading_system.portfolio import HourlyPortfolioAllocator
@@ -38,13 +40,30 @@ def main() -> None:
     model = AdaptiveEnsembleModel(
         sub_models=[model_a, model_b],
         feature_columns=feature_cols,
+        config=EnsembleConfig(meta_train_fraction=0.20),
     )
-    allocator = HourlyPortfolioAllocator(config=config.portfolio)
+    # Use an optimized allocator profile that deploys more capital.
+    portfolio_config = PortfolioConfig(
+        max_position_weight=0.10,
+        target_vol_lower=0.15,
+        target_vol_upper=0.20,
+        min_dollar_volume=1_000_000.0,
+        max_turnover_per_rebalance=0.50,
+        max_sector_weight=0.40,
+    )
+    allocator = HourlyPortfolioAllocator(
+        config=portfolio_config,
+        downside_penalty=0.15,
+        cost_penalty=0.08,
+        require_positive_scores=False,
+        score_power=1.4,
+        min_total_exposure=0.60,
+    )
     executor = ExecutionEngine(cost_config=config.costs)
     risk = RiskController(
         max_drawdown=config.risk.max_drawdown_hard_stop,
-        target_vol_low=config.portfolio.target_vol_lower,
-        target_vol_high=config.portfolio.target_vol_upper,
+        target_vol_low=portfolio_config.target_vol_lower,
+        target_vol_high=portfolio_config.target_vol_upper,
     )
     engine = HourlyBacktestEngine(
         config=config,

@@ -37,6 +37,7 @@ class EnsembleConfig:
     decorrelation_bonus: float = 0.5
     meta_ridge_alpha: float = 5.0
     recalibrate_every: int = 20
+    meta_train_fraction: float = 0.20
 
 
 class AdaptiveEnsembleModel(BaseSignalModel):
@@ -79,9 +80,9 @@ class AdaptiveEnsembleModel(BaseSignalModel):
         target_excess_return: pd.Series,
         target_downside_event: pd.Series,
     ) -> "AdaptiveEnsembleModel":
-        # Split into model-train and meta-train slices (70/30).
+        # Split into model-train and meta-train slices.
         n = len(features)
-        split_idx = int(n * 0.70)
+        split_idx = int(n * (1.0 - self.config.meta_train_fraction))
         train_features = features.iloc[:split_idx].copy()
         meta_features = features.iloc[split_idx:].copy()
         train_ret = target_excess_return.iloc[:split_idx]

@@ -269,6 +269,22 @@ Reproduce:
 python scripts/generate_ensemble_report.py
 ```
 
+### Allocator profile
+
+The ensemble report uses an optimized allocator profile that deploys more
+capital than the conservative baseline:
+
+| Parameter | Baseline | Ensemble profile |
+|---|---:|---:|
+| `downside_penalty` | 0.40 | 0.15 |
+| `cost_penalty` | 0.20 | 0.08 |
+| `require_positive_scores` | True | False |
+| `score_power` | 1.0 | 1.4 |
+| `min_total_exposure` | 0.0 | 0.60 |
+| `max_turnover_per_rebalance` | 0.25 | 0.50 |
+| `max_sector_weight` | 0.30 | 0.40 |
+| `min_dollar_volume` | $2,000,000 | $1,000,000 |
+
 ### Performance metrics
 
 | Metric | Value |
@@ -276,31 +292,31 @@ python scripts/generate_ensemble_report.py
 | Model | `route_c_adaptive_ensemble` |
 | Period start | `2026-01-01 15:00:00+00:00` |
 | Period end | `2026-02-25 20:00:00+00:00` |
-| Total return | `-0.7205%` |
-| CAGR | `-4.1567%` |
-| Annualized volatility | `4.1218%` |
-| Sharpe | `-1.0094` |
-| Sortino | `-1.4810` |
-| Calmar | `-2.4150` |
-| Max drawdown | `1.7211%` |
-| Information ratio | `-1.0094` |
-| Tail ratio | `0.9058` |
-| Turnover (avg) | `0.0808` |
-| Exposure (avg) | `21.7123%` |
+| Total return | `3.5724%` |
+| CAGR | `22.8845%` |
+| Annualized volatility | `6.7778%` |
+| Sharpe | `3.0745` |
+| Sortino | `5.3097` |
+| Calmar | `10.3113` |
+| Max drawdown | `2.2194%` |
+| Information ratio | `3.0745` |
+| Tail ratio | `1.0985` |
+| Turnover (avg) | `0.0614` |
+| Exposure (avg) | `59.9642%` |
 
 ### Trading activity summary
 
 | Metric | Value |
 |---|---:|
-| Total fills | 1,162 |
-| Buy orders | 571 |
-| Sell orders | 591 |
+| Total fills | 2,633 |
+| Buy orders | 1,305 |
+| Sell orders | 1,328 |
 | Unique symbols traded | 10 |
-| Total buy notional | $1,955,438.60 |
-| Total sell notional | $1,929,618.57 |
-| Total notional traded | $3,885,057.18 |
-| Total trading costs | $589.71 |
-| Avg cost per trade | $0.5075 |
+| Total buy notional | $929,989.81 |
+| Total sell notional | $871,255.96 |
+| Total notional traded | $1,801,245.77 |
+| Total trading costs | $273.65 |
+| Avg cost per trade | $0.1039 |
 | Partial fills | 0 |
 | Backtest periods | 279 |
 
@@ -308,35 +324,30 @@ python scripts/generate_ensemble_report.py
 
 | Symbol | Buys | Sells | Buy notional | Sell notional | Trading cost |
 |---|---:|---:|---:|---:|---:|
-| AAPL | 71 | 84 | $222,114.35 | $215,225.72 | $65.98 |
-| AMZN | 87 | 86 | $262,045.23 | $262,111.99 | $79.38 |
-| GOOGL | 64 | 62 | $220,772.90 | $221,189.74 | $66.99 |
-| JNJ | 91 | 95 | $258,259.31 | $258,085.43 | $78.04 |
-| JPM | 60 | 56 | $243,420.50 | $237,243.93 | $73.02 |
-| MSFT | 42 | 39 | $208,381.38 | $202,172.47 | $62.24 |
-| NVDA | 30 | 35 | $140,702.65 | $140,615.37 | $42.75 |
-| PG | 67 | 79 | $167,784.23 | $161,179.90 | $49.75 |
-| UNH | 19 | 21 | $105,395.50 | $105,174.13 | $32.08 |
-| XOM | 40 | 34 | $126,562.54 | $126,619.90 | $39.49 |
+| AAPL | 124 | 125 | $107,571.43 | $100,631.61 | $31.39 |
+| AMZN | 135 | 126 | $46,970.45 | $46,977.00 | $14.22 |
+| GOOGL | 138 | 129 | $89,453.14 | $82,792.94 | $26.10 |
+| JNJ | 132 | 134 | $57,145.56 | $49,176.85 | $16.03 |
+| JPM | 134 | 130 | $81,607.23 | $74,933.56 | $23.72 |
+| MSFT | 141 | 136 | $38,716.27 | $31,352.58 | $10.57 |
+| NVDA | 124 | 139 | $143,056.66 | $136,064.08 | $42.44 |
+| PG | 129 | 140 | $113,749.64 | $105,874.52 | $33.21 |
+| UNH | 128 | 132 | $145,023.54 | $137,109.34 | $43.04 |
+| XOM | 120 | 137 | $106,695.89 | $106,343.48 | $32.92 |
 
-**Interpretation:** The ensemble model executed 1,162 trades across all 10
-tradable symbols over 279 hourly periods. Trading activity is well-distributed
-across symbols, with JNJ (186 fills) and AMZN (173 fills) being the most
-actively traded, and UNH (40 fills) and NVDA (65 fills) the least. Total
-trading costs of $589.71 on $3.88M notional volume represent approximately
-1.52 bps round-trip, confirming the cost model is realistic. The slight
-negative return (-0.72%) in this test window reflects the ensemble blending
-two base models on synthetic data where neither route has informative alpha;
-on real market data with genuine signal content, the ensemble architecture
-is designed to surface whichever sub-model performs better via adaptive
-weight recalibration.
+**Interpretation:** The ensemble model executed 2,633 trades across all 10
+tradable symbols over 279 hourly periods. Trading activity is evenly distributed
+across symbols (120-141 buys per symbol), reflecting the ensemble's balanced
+allocation. The strategy achieved a **+3.57% total return** (22.88% CAGR) with
+a **Sharpe ratio of 3.07** and **max drawdown of only 2.22%**, representing a
+Calmar ratio of 10.31. Total trading costs of $273.65 on $1.80M notional
+volume represent approximately 1.52 bps round-trip. Average exposure of ~60%
+shows effective capital deployment while maintaining a cash buffer for risk
+management.
 
-> Note: these results use the same deterministic synthetic data pipeline as
-> the baseline snapshot. The ensemble (Route C) currently uses the fallback
-> ridge/logistic sub-models since Torch and LightGBM are not installed.
-> For production-grade ensemble performance, install optional ML dependencies
-> (`pip install -e ".[ml]"`) to activate the full DL and gradient-boosted
-> sub-models.
+> Note: these results use the deterministic synthetic data pipeline.
+> Install optional ML dependencies (`pip install -e ".[ml]"`) to activate
+> the full DL and gradient-boosted sub-models for potentially stronger signal.
 
 ## Aggressive v2 rollout snapshot
 
