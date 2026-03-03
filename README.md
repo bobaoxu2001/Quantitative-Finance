@@ -14,9 +14,10 @@ optimization constraints, and analytics/dashboard outputs.
 - Label engineering for:
   - 5-hour forward excess return vs SPY
   - downside event probability
-- Dual model routes:
-  - Route A: deep cross-sectional multitask model (Torch optional, deterministic fallback)
-  - Route B: factor + LightGBM-style baseline (LightGBM optional, deterministic fallback)
+- Three model routes:
+  - Route A: deep cross-sectional multitask model (BatchNorm + cosine LR + He init; Torch optional, deterministic fallback)
+  - Route B: factor + LightGBM-style baseline (early stopping + feature importances; LightGBM optional, deterministic fallback)
+  - Route C: adaptive ensemble meta-model (ridge meta-learner + inverse-error weighting + online recalibration; blends Route A and Route B)
 - Long-only constrained portfolio construction:
   - max 10% per stock
   - liquidity filters
@@ -57,7 +58,7 @@ src/hourly_trading_system/
   data/           # PIT contracts, adapters, and store logic
   features/       # feature library
   labels/         # label engineering
-  models/         # Route A + Route B models
+  models/         # Route A + Route B + Route C (ensemble) models
   portfolio/      # allocation and constraints
   execution/      # transaction cost + fills
   risk/           # drawdown and risk regime controls
@@ -78,6 +79,7 @@ scripts/
   generate_model_result_dashboard.py
   generate_public_quant_comparison_charts.py
   run_aggressive_v2_comparison.py
+  generate_ensemble_report.py
   run_production_preflight.py
   run_preflight.sh
 deploy/
@@ -251,7 +253,92 @@ Conclusion (for this test run): **successful** under the stated risk constraints
 > with institution-approved market/fundamental/sentiment feeds and full broker
 > connectivity.
 
-## Aggressive v2 (进攻版) rollout snapshot
+## Ensemble model (Route C) test-set performance
+
+Route C is an **adaptive ensemble meta-model** that blends Route A (deep
+cross-sectional multitask net) and Route B (factor + LightGBM baseline) using a
+ridge meta-learner for return predictions and inverse-error weighting for
+downside probability, with shrinkage toward equal weight for robustness and
+online recalibration from tracked forecast errors.
+
+Test window: `2026-01-01` to `2026-02-26`, trained on data up to `2025-10-31`.
+
+Reproduce:
+
+```bash
+python scripts/generate_ensemble_report.py
+```
+
+### Performance metrics
+
+| Metric | Value |
+|---|---:|
+| Model | `route_c_adaptive_ensemble` |
+| Period start | `2026-01-01 15:00:00+00:00` |
+| Period end | `2026-02-25 20:00:00+00:00` |
+| Total return | `-0.7205%` |
+| CAGR | `-4.1567%` |
+| Annualized volatility | `4.1218%` |
+| Sharpe | `-1.0094` |
+| Sortino | `-1.4810` |
+| Calmar | `-2.4150` |
+| Max drawdown | `1.7211%` |
+| Information ratio | `-1.0094` |
+| Tail ratio | `0.9058` |
+| Turnover (avg) | `0.0808` |
+| Exposure (avg) | `21.7123%` |
+
+### Trading activity summary
+
+| Metric | Value |
+|---|---:|
+| Total fills | 1,162 |
+| Buy orders | 571 |
+| Sell orders | 591 |
+| Unique symbols traded | 10 |
+| Total buy notional | $1,955,438.60 |
+| Total sell notional | $1,929,618.57 |
+| Total notional traded | $3,885,057.18 |
+| Total trading costs | $589.71 |
+| Avg cost per trade | $0.5075 |
+| Partial fills | 0 |
+| Backtest periods | 279 |
+
+### Per-symbol trading breakdown
+
+| Symbol | Buys | Sells | Buy notional | Sell notional | Trading cost |
+|---|---:|---:|---:|---:|---:|
+| AAPL | 71 | 84 | $222,114.35 | $215,225.72 | $65.98 |
+| AMZN | 87 | 86 | $262,045.23 | $262,111.99 | $79.38 |
+| GOOGL | 64 | 62 | $220,772.90 | $221,189.74 | $66.99 |
+| JNJ | 91 | 95 | $258,259.31 | $258,085.43 | $78.04 |
+| JPM | 60 | 56 | $243,420.50 | $237,243.93 | $73.02 |
+| MSFT | 42 | 39 | $208,381.38 | $202,172.47 | $62.24 |
+| NVDA | 30 | 35 | $140,702.65 | $140,615.37 | $42.75 |
+| PG | 67 | 79 | $167,784.23 | $161,179.90 | $49.75 |
+| UNH | 19 | 21 | $105,395.50 | $105,174.13 | $32.08 |
+| XOM | 40 | 34 | $126,562.54 | $126,619.90 | $39.49 |
+
+**Interpretation:** The ensemble model executed 1,162 trades across all 10
+tradable symbols over 279 hourly periods. Trading activity is well-distributed
+across symbols, with JNJ (186 fills) and AMZN (173 fills) being the most
+actively traded, and UNH (40 fills) and NVDA (65 fills) the least. Total
+trading costs of $589.71 on $3.88M notional volume represent approximately
+1.52 bps round-trip, confirming the cost model is realistic. The slight
+negative return (-0.72%) in this test window reflects the ensemble blending
+two base models on synthetic data where neither route has informative alpha;
+on real market data with genuine signal content, the ensemble architecture
+is designed to surface whichever sub-model performs better via adaptive
+weight recalibration.
+
+> Note: these results use the same deterministic synthetic data pipeline as
+> the baseline snapshot. The ensemble (Route C) currently uses the fallback
+> ridge/logistic sub-models since Torch and LightGBM are not installed.
+> For production-grade ensemble performance, install optional ML dependencies
+> (`pip install -e ".[ml]"`) to activate the full DL and gradient-boosted
+> sub-models.
+
+## Aggressive v2 rollout snapshot
 
 To address low capital utilization in baseline mode, this repository now includes
 an aggressive-v2 profile that increases deployment intensity while preserving
@@ -309,7 +396,7 @@ Generated artifacts:
 risk-adjusted returns by increasing exposure utilization from ~25% to ~75%,
 with a higher but still controlled drawdown profile.
 
-## Public quant model comparison (公开案例：量化模型能做到多少钱)
+## Public quant model comparison
 
 This section adds **publicly reported** quant-fund benchmarks for scale context.
 
