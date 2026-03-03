@@ -33,6 +33,7 @@ class FactorLightGBMBaseline(BaseSignalModel):
         self._clf: LogisticClassifier | None = None
         self._ranker: object | None = None
         self._down_classifier: object | None = None
+        self._feature_importances: np.ndarray | None = None
 
     def _normalize(self, x: np.ndarray, fit: bool = False) -> np.ndarray:
         if fit or self._x_mean is None or self._x_std is None:
@@ -68,6 +69,7 @@ class FactorLightGBMBaseline(BaseSignalModel):
                 reg_alpha=0.5,
                 reg_lambda=0.5,
                 random_state=42,
+                verbosity=-1,
             )
             self._down_classifier = lgb.LGBMClassifier(
                 n_estimators=300,
@@ -78,9 +80,28 @@ class FactorLightGBMBaseline(BaseSignalModel):
                 reg_alpha=0.5,
                 reg_lambda=0.5,
                 random_state=42,
+                verbosity=-1,
             )
-            self._ranker.fit(x, y_ret)
-            self._down_classifier.fit(x, y_down)
+            # Early stopping with train/validation split to prevent overfitting.
+            split_idx = int(len(x) * 0.85)
+            if split_idx > 20 and len(x) - split_idx > 10:
+                x_tr, x_vl = x[:split_idx], x[split_idx:]
+                yr_tr, yr_vl = y_ret[:split_idx], y_ret[split_idx:]
+                yd_tr, yd_vl = y_down[:split_idx], y_down[split_idx:]
+                self._ranker.fit(
+                    x_tr, yr_tr,
+                    eval_set=[(x_vl, yr_vl)],
+                    callbacks=[lgb.early_stopping(50, verbose=False)],
+                )
+                self._down_classifier.fit(
+                    x_tr, yd_tr,
+                    eval_set=[(x_vl, yd_vl)],
+                    callbacks=[lgb.early_stopping(50, verbose=False)],
+                )
+            else:
+                self._ranker.fit(x, y_ret)
+                self._down_classifier.fit(x, y_down)
+            self._feature_importances = self._ranker.feature_importances_.astype(float)
             return self
 
         self._reg = RidgeRegressor(alpha=1.5).fit(x, y_ret)
@@ -122,3 +143,10 @@ class FactorLightGBMBaseline(BaseSignalModel):
             model_name=self.model_name,
             metadata={"route": "B"},
         )
+
+    @property
+    def feature_importances(self) -> pd.Series | None:
+        """Return feature importances from the LightGBM ranker (if available)."""
+        if self._feature_importances is None:
+            return None
+        return pd.Series(self._feature_importances, index=self.feature_columns[:len(self._feature_importances)])

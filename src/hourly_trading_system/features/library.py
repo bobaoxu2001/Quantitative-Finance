@@ -27,6 +27,9 @@ FEATURE_COLUMNS = [
     "rv_5h",
     "rv_20h",
     "downside_semivol_20h",
+    "garman_klass_vol_20h",
+    "parkinson_vol_20h",
+    "kyle_lambda_20h",
     "atr_norm_14h",
     "dollar_volume",
     "dollar_vol_z_20h",
@@ -235,6 +238,27 @@ def build_feature_panel(
     df["downside_semivol_20h"] = grouped["ret_1h"].transform(
         lambda s: s.clip(upper=0.0).rolling(20, min_periods=10).std()
     ) * np.sqrt(20)
+
+    # Garman-Klass volatility estimator (more efficient than close-to-close).
+    log_hl = np.log(df["high"] / df["low"].replace(0.0, np.nan))
+    log_co = np.log(df["close"] / df["open"].replace(0.0, np.nan))
+    gk_component = 0.5 * log_hl ** 2 - (2 * np.log(2) - 1) * log_co ** 2
+    df["garman_klass_vol_20h"] = grouped.apply(
+        lambda g: gk_component.loc[g.index].rolling(20, min_periods=10).mean().pipe(np.sqrt)
+    ).reset_index(level=0, drop=True) * np.sqrt(TRADING_HOURS_PER_YEAR)
+
+    # Parkinson high-low volatility estimator.
+    df["parkinson_vol_20h"] = grouped.apply(
+        lambda g: (log_hl.loc[g.index] ** 2).rolling(20, min_periods=10).mean().pipe(
+            lambda s: np.sqrt(s / (4 * np.log(2)))
+        )
+    ).reset_index(level=0, drop=True) * np.sqrt(TRADING_HOURS_PER_YEAR)
+
+    # Kyle's lambda: price impact proxy = |return| / volume.
+    kyle_raw = df["ret_1h"].abs() / df["volume"].replace(0.0, np.nan)
+    df["kyle_lambda_20h"] = kyle_raw.groupby(df["symbol"]).transform(
+        lambda s: s.rolling(20, min_periods=10).mean()
+    )
 
     true_range = pd.concat(
         [

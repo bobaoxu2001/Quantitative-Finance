@@ -11,7 +11,11 @@ from hourly_trading_system.backtest import HourlyBacktestEngine
 from hourly_trading_system.config import SystemConfig
 from hourly_trading_system.execution import ExecutionEngine
 from hourly_trading_system.features.library import required_features
-from hourly_trading_system.models import FactorLightGBMBaseline
+from hourly_trading_system.models import (
+    AdaptiveEnsembleModel,
+    DeepCrossSectionalModel,
+    FactorLightGBMBaseline,
+)
 from hourly_trading_system.portfolio import HourlyPortfolioAllocator
 from hourly_trading_system.risk import RiskController
 
@@ -198,7 +202,13 @@ def main() -> None:
     market, membership, fundamentals, macro, sentiment, analyst = make_synthetic_market_data()
 
     config = SystemConfig()
-    model = FactorLightGBMBaseline(feature_columns=required_features())
+    feature_cols = required_features()
+    model_a = DeepCrossSectionalModel(feature_columns=feature_cols)
+    model_b = FactorLightGBMBaseline(feature_columns=feature_cols)
+    model = AdaptiveEnsembleModel(
+        sub_models=[model_a, model_b],
+        feature_columns=feature_cols,
+    )
     allocator = HourlyPortfolioAllocator(config=config.portfolio)
     executor = ExecutionEngine(cost_config=config.costs)
     risk = RiskController(
