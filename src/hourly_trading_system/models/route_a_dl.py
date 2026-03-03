@@ -35,14 +35,24 @@ if TORCH_AVAILABLE:
             super().__init__()
             self.backbone = nn.Sequential(
                 nn.Linear(input_dim, hidden_dim),
+                nn.BatchNorm1d(hidden_dim),
                 nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(hidden_dim, hidden_dim),
+                nn.BatchNorm1d(hidden_dim),
                 nn.ReLU(),
                 nn.Dropout(dropout),
             )
             self.return_head = nn.Linear(hidden_dim, 1)
             self.downside_head = nn.Linear(hidden_dim, 1)
+            self._init_weights()
+
+        def _init_weights(self) -> None:
+            for m in self.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
 
         def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
             h = self.backbone(x)
@@ -123,6 +133,7 @@ class DeepCrossSectionalModel(BaseSignalModel):
             dropout=self.config.dropout,
         )
         optimizer = torch.optim.Adam(model.parameters(), lr=self.config.learning_rate, weight_decay=1e-4)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.config.epochs)
         mse_loss = nn.MSELoss()
         bce_loss = nn.BCEWithLogitsLoss()
 
@@ -165,6 +176,7 @@ class DeepCrossSectionalModel(BaseSignalModel):
                 patience += 1
                 if patience >= self.config.early_stopping_patience:
                     break
+            scheduler.step()
 
         if best_state is not None:
             model.load_state_dict(best_state)
