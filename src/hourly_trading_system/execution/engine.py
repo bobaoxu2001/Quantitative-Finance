@@ -9,6 +9,7 @@ import pandas as pd
 
 from hourly_trading_system.config import CostModelConfig
 from hourly_trading_system.execution.costs import (
+    CostBreakdown,
     apply_cost_to_price,
     impact_eta_from_dollar_volume,
     transaction_cost_bps,
@@ -27,7 +28,9 @@ class ExecutionResult:
 
     def to_frame(self) -> pd.DataFrame:
         if not self.fills:
-            return pd.DataFrame(columns=["symbol", "timestamp", "quantity", "fill_price", "notional", "trading_cost", "partial"])
+            return pd.DataFrame(
+                columns=["symbol", "timestamp", "quantity", "fill_price", "notional", "trading_cost", "partial"]
+            )
         return pd.DataFrame([fill.__dict__ for fill in self.fills])
 
 
@@ -52,7 +55,9 @@ class ExecutionEngine:
         market_next_open required columns:
           symbol, open, volume
         """
-        if target_weights.empty:
+        # An empty target means "hold no positions" (e.g. risk-off): only skip
+        # execution when there is also nothing to liquidate.
+        if target_weights.empty and not current_positions:
             return ExecutionResult(
                 timestamp=timestamp,
                 fills=[],
@@ -69,48 +74,54 @@ class ExecutionEngine:
         total_cost = 0.0
         unfilled_symbols: list[str] = []
 
+        # Size every trade first, then execute sells before buys so that sale
+        # proceeds fund purchases and the book never borrows cash (long-only,
+        # no leverage).
+        planned: list[tuple[str, float, float, float]] = []
         symbols = sorted(set(target_weights.index).union(current_positions.keys()))
         for symbol in symbols:
             price = float(prices.get(symbol, 0.0))
             if price <= 0.0:
-                unfilled_symbols.append(symbol)
+                if abs(float(target_weights.get(symbol, 0.0))) > 0.0 or abs(positions.get(symbol, 0.0)) > 0.0:
+                    unfilled_symbols.append(symbol)
                 continue
 
             current_qty = float(positions.get(symbol, 0.0))
-            current_notional = current_qty * price
             target_notional = float(target_weights.get(symbol, 0.0) * equity)
-            delta_notional = target_notional - current_notional
+            delta_notional = target_notional - current_qty * price
             if abs(delta_notional) < 1e-6:
                 continue
 
             desired_qty = delta_notional / price
-            avail_volume = float(volumes.get(symbol, 0.0))
-            fill_cap = self.cost_config.max_participation_rate * max(avail_volume, 0.0)
+            avail_volume = max(float(volumes.get(symbol, 0.0)), 0.0)
+            fill_cap = self.cost_config.max_participation_rate * avail_volume
             if fill_cap <= 0:
                 unfilled_symbols.append(symbol)
                 continue
+            planned.append((symbol, price, desired_qty, avail_volume))
 
+        sells = [order for order in planned if order[2] < 0]
+        buys = [order for order in planned if order[2] > 0]
+        for symbol, price, desired_qty, avail_volume in [*sells, *buys]:
+            fill_cap = self.cost_config.max_participation_rate * avail_volume
             fill_qty = max(min(desired_qty, fill_cap), -fill_cap)
-            partial = abs(fill_qty - desired_qty) > 1e-9
             side = "BUY" if fill_qty > 0 else "SELL"
-
-            dollar_volume = avail_volume * price
-            eta = impact_eta_from_dollar_volume(
-                dollar_volume=dollar_volume,
-                base_eta=self.cost_config.base_impact_eta,
-            )
-            cost = transaction_cost_bps(
-                quantity=fill_qty,
-                exec_volume=max(avail_volume, 1.0),
-                slippage_bps=self.cost_config.slippage_bps,
-                half_spread_bps=self.cost_config.half_spread_bps,
-                impact_eta=eta,
-            )
+            cost = self._cost(fill_qty, price, avail_volume)
             fill_price = apply_cost_to_price(price=price, side=side, total_bps=cost.total_bps)
+            if side == "BUY" and fill_qty * fill_price > cash:
+                # Scale the purchase down to available cash; re-price at the
+                # smaller size (impact can only fall, so it stays affordable).
+                fill_qty = max(cash, 0.0) / fill_price
+                if fill_qty <= 1e-12:
+                    unfilled_symbols.append(symbol)
+                    continue
+                cost = self._cost(fill_qty, price, avail_volume)
+                fill_price = apply_cost_to_price(price=price, side=side, total_bps=cost.total_bps)
+            partial = abs(fill_qty - desired_qty) > 1e-9
             notional = fill_qty * fill_price
             trading_cost = abs(fill_qty * price) * cost.total_bps * 1e-4
 
-            positions[symbol] = current_qty + fill_qty
+            positions[symbol] = float(positions.get(symbol, 0.0)) + fill_qty
             cash -= notional
             total_cost += trading_cost
             fills.append(
@@ -138,16 +149,40 @@ class ExecutionEngine:
             unfilled_symbols=sorted(set(unfilled_symbols)),
         )
 
+    def _cost(self, quantity: float, price: float, avail_volume: float) -> CostBreakdown:
+        eta = impact_eta_from_dollar_volume(
+            dollar_volume=avail_volume * price,
+            base_eta=self.cost_config.base_impact_eta,
+        )
+        return transaction_cost_bps(
+            quantity=quantity,
+            exec_volume=max(avail_volume, 1.0),
+            slippage_bps=self.cost_config.slippage_bps,
+            half_spread_bps=self.cost_config.half_spread_bps,
+            impact_eta=eta,
+        )
+
     @staticmethod
     def mark_to_market(
         positions: dict[str, float],
         cash: float,
         market_snapshot: pd.DataFrame,
         price_col: str = "close",
+        fallback_prices: dict[str, float] | None = None,
     ) -> dict[str, Any]:
-        """Compute current equity, invested value, and symbol notional."""
+        """
+        Compute current equity, invested value, and symbol notional.
+
+        Held symbols without a price in ``market_snapshot`` (halted, delisted or
+        simply missing a bar) are valued at ``fallback_prices`` (typically the
+        last observed close) instead of silently being marked at zero.
+        """
         prices = market_snapshot.set_index("symbol")[price_col].to_dict()
-        notionals = {symbol: qty * float(prices.get(symbol, 0.0)) for symbol, qty in positions.items()}
+        fallback = fallback_prices or {}
+        notionals = {
+            symbol: qty * float(prices.get(symbol, fallback.get(symbol, 0.0)))
+            for symbol, qty in positions.items()
+        }
         invested = float(sum(notionals.values()))
         equity = cash + invested
         return {"equity": equity, "invested": invested, "cash": cash, "notionals": notionals}
