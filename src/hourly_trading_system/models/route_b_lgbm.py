@@ -5,7 +5,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .base import BaseSignalModel, LogisticClassifier, PredictionFrame, RidgeRegressor, clean_feature_matrix
+from .base import (
+    BaseSignalModel,
+    FeaturePreprocessor,
+    LogisticClassifier,
+    PredictionFrame,
+    RidgeRegressor,
+    cross_sectional_rank_score,
+    time_order,
+)
 
 try:
     import lightgbm as lgb
@@ -21,41 +29,45 @@ class FactorLightGBMBaseline(BaseSignalModel):
 
     Uses LightGBM when available, otherwise falls back to deterministic
     ridge/logistic implementation to keep pipeline executable.
+
+    Note: ``expected_excess_return`` emitted by this route is a centred
+    cross-sectional rank score in [-0.5, 0.5] (per ``event_time``), not a
+    return forecast in return units.
     """
 
     model_name = "route_b_factor_lgbm"
 
     def __init__(self, feature_columns: list[str]) -> None:
         self.feature_columns = feature_columns
-        self._x_mean: np.ndarray | None = None
-        self._x_std: np.ndarray | None = None
+        self._preprocessor = FeaturePreprocessor(feature_columns)
         self._reg: RidgeRegressor | None = None
         self._clf: LogisticClassifier | None = None
         self._ranker: object | None = None
         self._down_classifier: object | None = None
         self._feature_importances: np.ndarray | None = None
 
-    def _normalize(self, x: np.ndarray, fit: bool = False) -> np.ndarray:
-        if fit or self._x_mean is None or self._x_std is None:
-            self._x_mean = x.mean(axis=0)
-            self._x_std = x.std(axis=0)
-            self._x_std[self._x_std == 0.0] = 1.0
-        return (x - self._x_mean) / self._x_std
-
     def fit(
         self,
         features: pd.DataFrame,
         target_excess_return: pd.Series,
         target_downside_event: pd.Series,
-    ) -> "FactorLightGBMBaseline":
-        x, _, _ = clean_feature_matrix(features, self.feature_columns)
+    ) -> FactorLightGBMBaseline:
+        self._reg = None
+        self._clf = None
+        self._ranker = None
+        self._down_classifier = None
+        self._feature_importances = None
+
         y_ret = target_excess_return.to_numpy(dtype=float)
         y_down = target_downside_event.to_numpy(dtype=float)
         valid = np.isfinite(y_ret) & np.isfinite(y_down)
-        x = x[valid]
-        y_ret = y_ret[valid]
-        y_down = y_down[valid]
-        x = self._normalize(x, fit=True)
+        train_rows = features.loc[valid]
+        # Chronological order so the early-stopping slice is out-of-time.
+        order = time_order(train_rows["event_time"])
+        train_rows = train_rows.iloc[order]
+        y_ret = y_ret[valid][order]
+        y_down = y_down[valid][order]
+        x = self._preprocessor.fit_transform(train_rows)
 
         if LIGHTGBM_AVAILABLE:
             # Ranking objective approximates cross-sectional alpha ordering.
@@ -65,6 +77,7 @@ class FactorLightGBMBaseline(BaseSignalModel):
                 num_leaves=63,
                 max_depth=-1,
                 subsample=0.9,
+                subsample_freq=1,
                 colsample_bytree=0.8,
                 reg_alpha=0.5,
                 reg_lambda=0.5,
@@ -76,6 +89,7 @@ class FactorLightGBMBaseline(BaseSignalModel):
                 learning_rate=0.05,
                 num_leaves=63,
                 subsample=0.9,
+                subsample_freq=1,
                 colsample_bytree=0.8,
                 reg_alpha=0.5,
                 reg_lambda=0.5,
@@ -109,8 +123,11 @@ class FactorLightGBMBaseline(BaseSignalModel):
         return self
 
     def predict(self, features: pd.DataFrame) -> PredictionFrame:
-        x, symbols, event_time = clean_feature_matrix(features, self.feature_columns)
-        x = self._normalize(x, fit=False)
+        if not self._preprocessor.is_fitted:
+            raise RuntimeError("Model must be fit before inference.")
+        x = self._preprocessor.transform(features)
+        symbols = features["symbol"].copy()
+        event_time = pd.to_datetime(features["event_time"], utc=True)
 
         if LIGHTGBM_AVAILABLE and self._ranker is not None and self._down_classifier is not None:
             pred_ret = pd.Series(self._ranker.predict(x), index=features.index)
@@ -122,24 +139,18 @@ class FactorLightGBMBaseline(BaseSignalModel):
             pred_down = pd.Series(self._clf.predict_proba(x)[:, 1], index=features.index)
 
         # Transform expected return into cross-sectional rank score per hour.
-        out = pd.DataFrame(
-            {
-                "symbol": symbols.values,
-                "event_time": event_time.values,
-                "pred_ret": pred_ret.values,
-                "pred_down": pred_down.values,
-            },
+        rank_score = pd.Series(
+            cross_sectional_rank_score(pred_ret.to_numpy(), event_time),
             index=features.index,
         )
-        out["expected_excess_return"] = out.groupby("event_time")["pred_ret"].transform(
-            lambda s: s.rank(pct=True) - 0.5
-        )
+        # Preserve NaN for rows whose raw prediction is undefined.
+        rank_score[pred_ret.isna()] = np.nan
 
         return PredictionFrame(
             symbol=symbols,
             event_time=event_time,
-            expected_excess_return=out["expected_excess_return"],
-            downside_probability=out["pred_down"].clip(0.0, 1.0),
+            expected_excess_return=rank_score,
+            downside_probability=pred_down.clip(0.0, 1.0),
             model_name=self.model_name,
             metadata={"route": "B"},
         )

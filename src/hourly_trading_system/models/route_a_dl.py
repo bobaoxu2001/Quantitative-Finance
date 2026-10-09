@@ -7,7 +7,14 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .base import BaseSignalModel, LogisticClassifier, PredictionFrame, RidgeRegressor, clean_feature_matrix
+from .base import (
+    BaseSignalModel,
+    FeaturePreprocessor,
+    LogisticClassifier,
+    PredictionFrame,
+    RidgeRegressor,
+    time_order,
+)
 
 try:
     import torch
@@ -26,6 +33,8 @@ class DLTrainingConfig:
     hidden_dim: int = 96
     dropout: float = 0.2
     early_stopping_patience: int = 4
+    validation_fraction: float = 0.15
+    seed: int = 42
 
 
 if TORCH_AVAILABLE:
@@ -83,46 +92,44 @@ class DeepCrossSectionalModel(BaseSignalModel):
     ) -> None:
         self.feature_columns = feature_columns
         self.config = config or DLTrainingConfig()
-        self._x_mean: np.ndarray | None = None
-        self._x_std: np.ndarray | None = None
+        self._preprocessor = FeaturePreprocessor(feature_columns)
         self._reg: RidgeRegressor | None = None
         self._clf: LogisticClassifier | None = None
         self._torch_model: _TorchMultiTaskNet | None = None
 
-    def _normalize(self, x: np.ndarray, fit: bool = False) -> np.ndarray:
-        if fit or self._x_mean is None or self._x_std is None:
-            self._x_mean = x.mean(axis=0)
-            self._x_std = x.std(axis=0)
-            self._x_std[self._x_std == 0.0] = 1.0
-        return (x - self._x_mean) / self._x_std
+    def _fit_linear_fallback(self, x: np.ndarray, y_ret: np.ndarray, y_down: np.ndarray) -> None:
+        self._reg = RidgeRegressor(alpha=3.0).fit(x, y_ret)
+        self._clf = LogisticClassifier(learning_rate=0.02, epochs=500, l2=2.0).fit(x, y_down)
 
     def fit(
         self,
         features: pd.DataFrame,
         target_excess_return: pd.Series,
         target_downside_event: pd.Series,
-    ) -> "DeepCrossSectionalModel":
-        x, _, _ = clean_feature_matrix(features, self.feature_columns)
+    ) -> DeepCrossSectionalModel:
+        # Reset state so a refit never serves predictions from a stale model.
+        self._reg = None
+        self._clf = None
+        self._torch_model = None
+
         y_ret = target_excess_return.to_numpy(dtype=float)
         y_down = target_downside_event.to_numpy(dtype=float)
-
         valid_mask = np.isfinite(y_ret) & np.isfinite(y_down)
-        x = x[valid_mask]
-        y_ret = y_ret[valid_mask]
-        y_down = y_down[valid_mask]
-        x = self._normalize(x, fit=True)
+        train_rows = features.loc[valid_mask]
+        # Sort chronologically so the early-stopping hold-out is the most recent slice.
+        order = time_order(train_rows["event_time"])
+        train_rows = train_rows.iloc[order]
+        y_ret = y_ret[valid_mask][order]
+        y_down = y_down[valid_mask][order]
+        x = self._preprocessor.fit_transform(train_rows)
 
-        if not TORCH_AVAILABLE:
-            self._reg = RidgeRegressor(alpha=3.0).fit(x, y_ret)
-            self._clf = LogisticClassifier(learning_rate=0.02, epochs=500, l2=2.0).fit(x, y_down)
+        if not TORCH_AVAILABLE or len(x) < 32:
+            self._fit_linear_fallback(x, y_ret, y_down)
             return self
 
-        if len(x) < 32:  # pragma: no cover - small-sample fallback
-            self._reg = RidgeRegressor(alpha=3.0).fit(x, y_ret)
-            self._clf = LogisticClassifier(learning_rate=0.02, epochs=500, l2=2.0).fit(x, y_down)
-            return self
-
-        idx = int(len(x) * 0.85)
+        torch.manual_seed(self.config.seed)
+        generator = torch.Generator().manual_seed(self.config.seed)
+        idx = int(len(x) * (1.0 - self.config.validation_fraction))
         x_train, x_val = x[:idx], x[idx:]
         yr_train, yr_val = y_ret[:idx], y_ret[idx:]
         yd_train, yd_val = y_down[:idx], y_down[idx:]
@@ -149,7 +156,7 @@ class DeepCrossSectionalModel(BaseSignalModel):
         best_state = None
         for _ in range(self.config.epochs):
             model.train()
-            permutation = torch.randperm(x_train_t.size(0))
+            permutation = torch.randperm(x_train_t.size(0), generator=generator)
             batch_size = self.config.batch_size
             for batch_start in range(0, x_train_t.size(0), batch_size):
                 idx_batch = permutation[batch_start : batch_start + batch_size]
@@ -184,8 +191,11 @@ class DeepCrossSectionalModel(BaseSignalModel):
         return self
 
     def predict(self, features: pd.DataFrame) -> PredictionFrame:
-        x, symbols, event_time = clean_feature_matrix(features, self.feature_columns)
-        x = self._normalize(x, fit=False)
+        if not self._preprocessor.is_fitted:
+            raise RuntimeError("Model must be fit before inference.")
+        x = self._preprocessor.transform(features)
+        symbols = features["symbol"].copy()
+        event_time = pd.to_datetime(features["event_time"], utc=True)
 
         if self._torch_model is not None and TORCH_AVAILABLE:
             self._torch_model.eval()

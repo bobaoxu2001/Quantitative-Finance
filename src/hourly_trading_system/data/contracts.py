@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable
 
 import pandas as pd
+
+from hourly_trading_system.time_utils import to_utc_timestamp
 
 REQUIRED_TIME_COLUMNS = [
     "event_time",
@@ -50,11 +52,7 @@ def enforce_information_set(frame: pd.DataFrame, decision_time: datetime) -> pd.
     """
     if frame.empty:
         return frame.copy()
-    decision_ts = pd.Timestamp(decision_time)
-    if decision_ts.tzinfo is None:
-        decision_ts = decision_ts.tz_localize("UTC")
-    else:
-        decision_ts = decision_ts.tz_convert("UTC")
+    decision_ts = to_utc_timestamp(decision_time)
     dtf = frame.copy()
     dtf["known_time"] = pd.to_datetime(dtf["known_time"], utc=True)
     return dtf.loc[dtf["known_time"] < decision_ts].copy()
@@ -72,7 +70,7 @@ class DataSnapshot:
     analyst: pd.DataFrame
     membership: pd.DataFrame
 
-    def enforce(self) -> "DataSnapshot":
+    def enforce(self) -> DataSnapshot:
         """Apply information-set filter to all contained datasets."""
         return DataSnapshot(
             decision_time=self.decision_time,

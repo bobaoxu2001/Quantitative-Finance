@@ -45,7 +45,7 @@ class BaseSignalModel(ABC):
         features: pd.DataFrame,
         target_excess_return: pd.Series,
         target_downside_event: pd.Series,
-    ) -> "BaseSignalModel":
+    ) -> BaseSignalModel:
         """Train model parameters."""
 
     @abstractmethod
@@ -71,6 +71,84 @@ def clean_feature_matrix(
     return x, symbols, event_time
 
 
+def cross_sectional_rank_score(values: pd.Series | np.ndarray, event_time: pd.Series) -> np.ndarray:
+    """
+    Map raw model outputs to a centred cross-sectional rank score in [-0.5, 0.5].
+
+    Ranks are computed independently per ``event_time`` so that scores from
+    models with very different output scales (raw returns vs. probabilities vs.
+    ranks) become directly comparable and can be blended.
+    """
+    frame = pd.DataFrame(
+        {
+            "value": np.asarray(values, dtype=float),
+            "event_time": pd.to_datetime(pd.Series(event_time).to_numpy(), utc=True),
+        }
+    )
+    ranks = frame.groupby("event_time", sort=False)["value"].rank(pct=True)
+    return (ranks - 0.5).fillna(0.0).to_numpy(dtype=float)
+
+
+class FeaturePreprocessor:
+    """
+    Train-fitted feature preprocessing for consistent training and inference.
+
+    Statistics (median for imputation, mean/std for standardisation) are learned
+    once from the training sample and re-used at inference time. Imputing with
+    statistics of the *inference batch* would make the same row's features
+    depend on which other symbols happen to be scored alongside it.
+    """
+
+    def __init__(self, feature_columns: list[str], clip_zscore: float | None = 5.0) -> None:
+        self.feature_columns = list(feature_columns)
+        self.clip_zscore = clip_zscore
+        self.medians_: np.ndarray | None = None
+        self.means_: np.ndarray | None = None
+        self.stds_: np.ndarray | None = None
+
+    def _raw(self, features: pd.DataFrame) -> np.ndarray:
+        missing = [col for col in self.feature_columns if col not in features.columns]
+        if missing:
+            raise ValueError(f"Missing feature columns: {missing}")
+        x = features.loc[:, self.feature_columns].to_numpy(dtype=float, copy=True)
+        x[~np.isfinite(x)] = np.nan
+        return x
+
+    @property
+    def is_fitted(self) -> bool:
+        return self.medians_ is not None
+
+    def fit(self, features: pd.DataFrame) -> FeaturePreprocessor:
+        x = self._raw(features)
+        medians = pd.DataFrame(x).median(axis=0, skipna=True).to_numpy(dtype=float)
+        medians = np.where(np.isfinite(medians), medians, 0.0)
+        filled = np.where(np.isnan(x), medians, x)
+        means = filled.mean(axis=0) if len(filled) else np.zeros(len(self.feature_columns))
+        stds = filled.std(axis=0) if len(filled) else np.ones(len(self.feature_columns))
+        stds = np.where(np.isfinite(stds) & (stds > 0.0), stds, 1.0)
+        self.medians_, self.means_, self.stds_ = medians, means, stds
+        return self
+
+    def transform(self, features: pd.DataFrame) -> np.ndarray:
+        if self.medians_ is None or self.means_ is None or self.stds_ is None:
+            raise RuntimeError("FeaturePreprocessor must be fit before transform.")
+        x = self._raw(features)
+        x = np.where(np.isnan(x), self.medians_, x)
+        z = (x - self.means_) / self.stds_
+        if self.clip_zscore is not None:
+            z = np.clip(z, -self.clip_zscore, self.clip_zscore)
+        return z
+
+    def fit_transform(self, features: pd.DataFrame) -> np.ndarray:
+        return self.fit(features).transform(features)
+
+
+def time_order(event_time: pd.Series) -> np.ndarray:
+    """Return a stable permutation that sorts rows by event_time."""
+    ts = pd.to_datetime(pd.Series(event_time).to_numpy(), utc=True)
+    return np.argsort(ts.to_numpy(), kind="stable")
+
+
 class RidgeRegressor:
     """Lightweight closed-form ridge regressor without third-party dependencies."""
 
@@ -79,7 +157,7 @@ class RidgeRegressor:
         self.coef_: np.ndarray | None = None
         self.intercept_: float = 0.0
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> "RidgeRegressor":
+    def fit(self, x: np.ndarray, y: np.ndarray) -> RidgeRegressor:
         ones = np.ones((x.shape[0], 1))
         x_aug = np.hstack([ones, x])
         identity = np.eye(x_aug.shape[1])
@@ -110,7 +188,7 @@ class LogisticClassifier:
         z = np.clip(z, -35.0, 35.0)
         return 1.0 / (1.0 + np.exp(-z))
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> "LogisticClassifier":
+    def fit(self, x: np.ndarray, y: np.ndarray) -> LogisticClassifier:
         n_samples, n_features = x.shape
         weights = np.zeros(n_features, dtype=float)
         bias = 0.0
