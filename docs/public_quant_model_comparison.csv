@@ -7,4 +7,3 @@ Bridgewater Pure Alpha,Private hedge fund,Global macro systematic,13.0,81.0,,Sin
 iShares MTUM ETF,Public ETF,Equity momentum factor,13.42,10.41,,10Y annualized to 2024-03,verified,ishares_mtum_factsheet_2024
 AQR Managed Futures Strategy Fund,Public mutual fund,Systematic managed futures,3.17,1.722,,Since inception annualized to 2025-03,verified,aqr_managed_futures_2025
 Man AHL Diversified Class A USD,Public fund,Systematic trend following,3.84,0.130,,Since inception annualized (share class),estimated,man_ahl_shareclass_public
-This repository hourly strategy (demo),Open-source model,Hourly long-only equity allocation,6.30,0.0001,,2026-01-01 to 2026-02-26 test CAGR,verified,this_repo_test_snapshot
