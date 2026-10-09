@@ -29,14 +29,24 @@ class SyntheticProvider(LiveDataProvider):
         dt = _to_utc(decision_time)
         rows = self.panel.loc[self.panel["event_time"] == dt]
         if rows.empty:
-            rows = self.panel.loc[self.panel["event_time"] <= dt].sort_values("event_time").groupby("symbol", as_index=False).tail(1)
+            rows = (
+                self.panel.loc[self.panel["event_time"] <= dt]
+                .sort_values("event_time")
+                .groupby("symbol", as_index=False)
+                .tail(1)
+            )
         return rows[["symbol", "event_time", *required_features()]].copy()
 
     def get_market_snapshot(self, decision_time: pd.Timestamp) -> pd.DataFrame:
         dt = _to_utc(decision_time)
         rows = self.panel.loc[self.panel["event_time"] == dt]
         if rows.empty:
-            rows = self.panel.loc[self.panel["event_time"] <= dt].sort_values("event_time").groupby("symbol", as_index=False).tail(1)
+            rows = (
+                self.panel.loc[self.panel["event_time"] <= dt]
+                .sort_values("event_time")
+                .groupby("symbol", as_index=False)
+                .tail(1)
+            )
         return rows[["symbol", "close", "volume", "sector", "rv_20h"]].copy()
 
 
@@ -49,7 +59,12 @@ class CSVSnapshotProvider(LiveDataProvider):
         dt = _to_utc(decision_time)
         rows = frame.loc[frame["event_time"] == dt]
         if rows.empty:
-            rows = frame.loc[frame["event_time"] <= dt].sort_values("event_time").groupby("symbol", as_index=False).tail(1)
+            rows = (
+                frame.loc[frame["event_time"] <= dt]
+                .sort_values("event_time")
+                .groupby("symbol", as_index=False)
+                .tail(1)
+            )
         return rows.copy()
 
     def get_features(self, decision_time: pd.Timestamp) -> pd.DataFrame:

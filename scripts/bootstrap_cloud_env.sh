@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKDIR="${1:-/workspace}"
+WORKDIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$WORKDIR"
 
 # Ensure user-level Python bin is available for pytest and helper tools.

@@ -7,7 +7,6 @@ from datetime import datetime
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 
-
 default_args = {
     "owner": "quant-platform",
     "depends_on_past": False,

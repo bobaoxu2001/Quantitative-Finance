@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import yaml
 
 from hourly_trading_system.analytics import LiveTCAAttributor

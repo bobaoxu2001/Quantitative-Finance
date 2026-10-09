@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import os
 import urllib.parse
 import urllib.request
-import json
 
 from hourly_trading_system.execution import (
     BinanceExecutionReplayClient,
     BinanceSpotSigner,
     BrokerWebSocketClient,
     HMACRequestSigner,
-    parse_binance_execution_report,
     parse_ws_order_status_message,
 )
 from hourly_trading_system.live import (

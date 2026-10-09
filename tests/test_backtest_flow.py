@@ -16,7 +16,7 @@ def _make_minimal_market() -> tuple[pd.DataFrame, pd.DataFrame]:
     rng = np.random.default_rng(123)
     symbols = ["SPY", "AAPL", "MSFT", "XOM"]
     sectors = {"SPY": "ETF", "AAPL": "TECH", "MSFT": "TECH", "XOM": "ENERGY"}
-    times = pd.date_range("2025-09-01", periods=180, freq="h", tz="UTC")
+    times = pd.date_range("2025-09-01", periods=480, freq="h", tz="UTC")
     times = times[(times.hour >= 14) & (times.hour <= 20) & (times.dayofweek < 5)]
     rows = []
     for sym in symbols:
@@ -81,10 +81,13 @@ def test_backtest_engine_runs_end_to_end() -> None:
     result = engine.run(
         market=market,
         membership=membership,
-        start="2025-09-02",
-        end="2025-09-05",
-        train_end="2025-09-01",
+        start="2025-09-11",
+        end="2025-09-19",
+        train_end="2025-09-10",
     )
     assert not result.equity_curve.empty
     assert "max_drawdown" in result.performance.summary
     assert result.metadata["n_periods"] > 0
+    assert result.metadata["n_train_rows"] > 100
+    assert not result.metadata["in_sample_overlap"]
+    assert (result.equity_curve["cash"] >= -1e-6).all()
