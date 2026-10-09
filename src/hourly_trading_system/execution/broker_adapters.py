@@ -8,9 +8,8 @@ from typing import Any
 from uuid import uuid4
 
 from hourly_trading_system.live.contracts import FillEvent, OrderAck, OrderRequest, OrderStatusEvent, now_utc
-from .broker_signers import AlpacaSigner, BinanceSpotSigner, IBKRGatewaySigner
-from .binance_replay import parse_binance_execution_report
 
+from .binance_replay import parse_binance_execution_report
 from .broker_gateway import (
     HMACRequestSigner,
     HTTPOMSClient,
@@ -19,6 +18,7 @@ from .broker_gateway import (
     OrderBatchResult,
     RetryPolicy,
 )
+from .broker_signers import AlpacaSigner, BinanceSpotSigner, IBKRGatewaySigner
 
 
 class BrokerKind(StrEnum):
@@ -265,10 +265,7 @@ class IBKRGatewayOMSAdapter(BaseBrokerOMSAdapter):
     def _parse_ack(self, response: dict[str, Any], order: OrderRequest) -> OrderAck:
         # Gateway may return list of statuses.
         status_rows = response.get("orders") or response.get("responses") or []
-        if isinstance(status_rows, list) and status_rows:
-            first = status_rows[0]
-        else:
-            first = response
+        first = status_rows[0] if isinstance(status_rows, list) and status_rows else response
         status = str(first.get("status", "Submitted"))
         accepted = status.lower() not in {"rejected", "cancelled", "inactive"}
         return OrderAck(

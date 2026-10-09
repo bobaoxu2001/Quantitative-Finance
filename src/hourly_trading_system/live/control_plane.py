@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-import json
+
+from hourly_trading_system.io_utils import atomic_write_json
 
 from .contracts import now_utc
 from .rbac import RBACPolicy
@@ -37,7 +39,7 @@ class LiveControlState:
         return out
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "LiveControlState":
+    def from_dict(payload: dict[str, Any]) -> LiveControlState:
         data = payload.copy()
         if data.get("unlock_request"):
             data["unlock_request"] = UnlockRequest(**data["unlock_request"])
@@ -69,8 +71,9 @@ class LiveControlPlane:
 
     def _save(self, state: LiveControlState) -> None:
         state.last_updated_at = now_utc().isoformat()
-        with self.state_path.open("w", encoding="utf-8") as handle:
-            json.dump(state.to_dict(), handle, indent=2)
+        # Atomic replace: the live runner and the monitor poll this file
+        # concurrently and must never observe a partially written state.
+        atomic_write_json(self.state_path, state.to_dict())
 
     def get_state(self) -> LiveControlState:
         with self.state_path.open("r", encoding="utf-8") as handle:
@@ -106,6 +109,11 @@ class LiveControlPlane:
         state = self.get_state()
         if state.unlock_request is None:
             raise ValueError("No unlock request found.")
+        if state.unlock_request.finalized:
+            raise ValueError("Unlock request is already finalized; submit a new request.")
+        if approver == state.unlock_request.requestor:
+            # Maker-checker (four-eyes): the requestor cannot approve their own unlock.
+            raise ValueError("Requestor cannot approve their own unlock request.")
         if approver not in state.unlock_request.approvals:
             state.unlock_request.approvals.append(approver)
             state.unlock_request.approval_records.append(
@@ -129,6 +137,8 @@ class LiveControlPlane:
         state = self.get_state()
         if state.unlock_request is None:
             raise ValueError("No unlock request found.")
+        if state.unlock_request.finalized:
+            raise ValueError("Unlock request is already finalized; submit a new request.")
         if len(state.unlock_request.approvals) < self.required_unlock_approvals:
             raise ValueError(
                 f"Insufficient approvals ({len(state.unlock_request.approvals)}/{self.required_unlock_approvals})."

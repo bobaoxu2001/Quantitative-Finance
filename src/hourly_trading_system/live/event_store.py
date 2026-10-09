@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 import hashlib
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 
 def stable_event_key(payload: dict[str, Any], preferred_fields: list[str] | None = None) -> str:
@@ -35,11 +37,21 @@ class SQLiteEventStore:
         self.db_path = str(self.db_path)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open a connection, commit on success / roll back on error, always close.
+
+        ``sqlite3.Connection`` used directly as a context manager only manages
+        the transaction and leaks the connection handle.
+        """
         conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         path = Path(self.db_path)
@@ -120,9 +132,6 @@ class RedisDedupStore:
     def record_event(self, topic: str, event_key: str) -> bool:
         client = self._client()
         key = f"{self.namespace}:{topic}:{event_key}"
-        # SETNX + EXPIRE for exactly-once window.
-        inserted = client.setnx(key, "1")
-        if inserted:
-            client.expire(key, self.ttl_seconds)
-            return True
-        return False
+            # Single atomic SET NX EX: a crash between SETNX and EXPIRE would
+        # otherwise leave a key without TTL that blocks the event forever.
+        return bool(client.set(key, "1", nx=True, ex=self.ttl_seconds))

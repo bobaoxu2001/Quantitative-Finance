@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -11,7 +11,7 @@ from uuid import uuid4
 
 def now_utc() -> datetime:
     """Return timezone-aware UTC datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class AlertSeverity(StrEnum):
@@ -47,7 +47,7 @@ class QueueMessage:
         return data
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "QueueMessage":
+    def from_dict(payload: dict[str, Any]) -> QueueMessage:
         out = payload.copy()
         out["timestamp"] = datetime.fromisoformat(out["timestamp"])
         return QueueMessage(**out)
@@ -143,7 +143,7 @@ class FillEvent:
         }
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "FillEvent":
+    def from_dict(payload: dict[str, Any]) -> FillEvent:
         data = payload.copy()
         data["fill_timestamp"] = datetime.fromisoformat(str(data["fill_timestamp"]))
         return FillEvent(**data)
@@ -185,7 +185,7 @@ class OrderStatusEvent:
         }
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "OrderStatusEvent":
+    def from_dict(payload: dict[str, Any]) -> OrderStatusEvent:
         data = payload.copy()
         data["broker_timestamp"] = datetime.fromisoformat(str(data["broker_timestamp"]))
         if data.get("last_fill"):
@@ -210,6 +210,7 @@ class ModelVersionRecord:
     approved_by: str | None = None
     rejection_reason: str | None = None
     rolled_from_version: str | None = None
+    artifact_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -218,7 +219,7 @@ class ModelVersionRecord:
         return out
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "ModelVersionRecord":
+    def from_dict(payload: dict[str, Any]) -> ModelVersionRecord:
         data = payload.copy()
         data["status"] = ModelApprovalStatus(data["status"])
         data["created_at"] = datetime.fromisoformat(data["created_at"])
@@ -247,7 +248,7 @@ class DeploymentState:
         }
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "DeploymentState":
+    def from_dict(payload: dict[str, Any]) -> DeploymentState:
         data = payload.copy()
         if data.get("rollout_started_at"):
             data["rollout_started_at"] = datetime.fromisoformat(data["rollout_started_at"])

@@ -66,7 +66,15 @@ class LiveTCAAttributor:
             req = req_map.get(ack.client_order_id)
             if req is None:
                 continue
-            arrival_price = float(req.limit_price) if req.limit_price is not None else float(req.metadata.get("reference_price", 0.0))
+            # Implementation shortfall is measured against the decision-time
+            # reference price. A protective limit is a worst-case bound, not the
+            # arrival price; using it would report fills inside the band as
+            # negative cost.
+            reference = req.metadata.get("reference_price")
+            if reference is not None and float(reference) > 0:
+                arrival_price = float(reference)
+            else:
+                arrival_price = float(req.limit_price) if req.limit_price is not None else 0.0
             decision_time = None
             raw_dt = req.metadata.get("decision_time")
             if raw_dt is not None:

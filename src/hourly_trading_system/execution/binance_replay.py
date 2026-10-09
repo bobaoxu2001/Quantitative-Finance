@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
-from typing import Any
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 from hourly_trading_system.live.contracts import FillEvent, OrderStatusEvent
 
@@ -16,12 +16,27 @@ from .broker_signers import BinanceSpotSigner
 
 def _dt_ms(ms: int | float | str | None) -> datetime:
     if ms is None:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     try:
         value = int(float(ms))
     except Exception:
-        return datetime.now(timezone.utc)
-    return datetime.fromtimestamp(value / 1000.0, tz=timezone.utc)
+        return datetime.now(UTC)
+    return datetime.fromtimestamp(value / 1000.0, tz=UTC)
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _average_price(quote_qty: Any, base_qty: Any) -> float | None:
+    """Average fill price = cumulative quote / cumulative base quantity."""
+    base = _safe_float(base_qty)
+    if base <= 0.0:
+        return None
+    return _safe_float(quote_qty) / base
 
 
 def parse_binance_execution_report(message: dict[str, Any]) -> OrderStatusEvent | None:
@@ -68,7 +83,7 @@ def parse_binance_execution_report(message: dict[str, Any]) -> OrderStatusEvent 
         requested_quantity=float(message.get("q", 0.0) or 0.0),
         filled_quantity=float(message.get("z", 0.0) or 0.0),
         remaining_quantity=max(float(message.get("q", 0.0) or 0.0) - float(message.get("z", 0.0) or 0.0), 0.0),
-        average_fill_price=float(message.get("Z", 0.0) or 0.0) / max(float(message.get("z", 0.0) or 1.0), 1.0),
+        average_fill_price=_average_price(message.get("Z"), message.get("z")),
         client_order_id=str(message.get("c", "")),
         reason=str(message.get("r", "")),
         broker_timestamp=_dt_ms(message.get("E")),
@@ -98,7 +113,8 @@ class BinanceExecutionReplayClient:
 
     def _signed_get(self, path: str, params: dict[str, Any]) -> Any:
         signed_params = self.signer.sign_params(params)
-        query = urllib.parse.urlencode(signed_params, doseq=True)
+        # Must serialise in the exact order that was signed (dict order).
+        query = urllib.parse.urlencode(list(signed_params.items()))
         url = f"{self.rest_base_url.rstrip('/')}{path}?{query}"
         request = urllib.request.Request(
             url=url,
@@ -150,37 +166,40 @@ class BinanceExecutionReplayClient:
             qty = float(order.get("origQty", 0.0) or 0.0)
             executed = float(order.get("executedQty", 0.0) or 0.0)
             status = str(order.get("status", "UNKNOWN"))
-            avg_price = float(order.get("cummulativeQuoteQty", 0.0) or 0.0) / max(executed, 1.0)
-            fill = None
+            avg_price = _average_price(order.get("cummulativeQuoteQty"), executed)
             order_trades = sorted(trades_by_order.get(oid, []), key=lambda x: x.get("time", 0))
-            if order_trades:
-                lt = order_trades[-1]
-                fill = FillEvent(
+            # Emit one event per trade so that every execution in the window is
+            # replayed; downstream reconciliation dedupes by execution_id.
+            fills = [
+                FillEvent(
                     order_id=oid,
                     symbol=symbol,
                     side=side,
-                    quantity=float(lt.get("qty", 0.0) or 0.0),
-                    fill_price=float(lt.get("price", 0.0) or 0.0),
-                    fees=float(lt.get("commission", 0.0) or 0.0),
-                    execution_id=str(lt.get("id", "")),
-                    fill_timestamp=_dt_ms(lt.get("time")),
+                    quantity=_safe_float(trade.get("qty")),
+                    fill_price=_safe_float(trade.get("price")),
+                    fees=_safe_float(trade.get("commission")),
+                    execution_id=str(trade.get("id", "")),
+                    fill_timestamp=_dt_ms(trade.get("time")),
                     venue="binance",
-                    metadata={"fee_asset": lt.get("commissionAsset")},
+                    metadata={"fee_asset": trade.get("commissionAsset")},
                 )
-            events.append(
-                OrderStatusEvent(
-                    order_id=oid,
-                    status=status,
-                    symbol=symbol,
-                    side=side,
-                    requested_quantity=qty,
-                    filled_quantity=executed,
-                    remaining_quantity=max(qty - executed, 0.0),
-                    average_fill_price=avg_price,
-                    client_order_id=str(order.get("clientOrderId", "")),
-                    reason="",
-                    broker_timestamp=_dt_ms(order.get("updateTime")),
-                    last_fill=fill,
+                for trade in order_trades
+            ]
+            for fill in fills or [None]:
+                events.append(
+                    OrderStatusEvent(
+                        order_id=oid,
+                        status=status,
+                        symbol=symbol,
+                        side=side,
+                        requested_quantity=qty,
+                        filled_quantity=executed,
+                        remaining_quantity=max(qty - executed, 0.0),
+                        average_fill_price=avg_price,
+                        client_order_id=str(order.get("clientOrderId", "")),
+                        reason="",
+                        broker_timestamp=_dt_ms(order.get("updateTime")),
+                        last_fill=fill,
+                    )
                 )
-            )
         return events

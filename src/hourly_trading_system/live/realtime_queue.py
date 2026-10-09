@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
-import json
 
 from .contracts import QueueMessage
 
@@ -103,5 +103,4 @@ def drain_topic(queue: BaseRealtimeQueue, topic: str, batch_size: int = 100) -> 
         batch = queue.consume(topic=topic, max_messages=batch_size)
         if not batch:
             break
-        for msg in batch:
-            yield msg
+        yield from batch

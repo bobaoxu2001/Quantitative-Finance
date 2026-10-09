@@ -2,24 +2,37 @@
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-import time
-from typing import Any
+from datetime import time as dt_time
 
 import pandas as pd
 
 from hourly_trading_system.orchestration.live_runner import LiveRunResult, LiveTradingRunner
+from hourly_trading_system.time_utils import to_utc_timestamp
 
 
 @dataclass(slots=True)
 class LiveLoopConfig:
-    """Runtime configuration for the hourly live loop."""
+    """
+    Runtime configuration for the hourly live loop.
+
+    Market hours are evaluated in ``exchange_timezone`` local time (DST-aware):
+    a decision hour runs when its local wall-clock time falls inside
+    ``[session_open_local, session_close_local]`` on a weekday. Set
+    ``exchange_timezone=None`` to fall back to the fixed UTC hour window
+    (``market_open_hour_utc``..``market_close_hour_utc``), which drifts by one
+    hour across daylight-saving transitions. Exchange holidays are not modelled.
+    """
 
     timezone: str = "UTC"
     run_only_market_hours: bool = True
     market_open_hour_utc: int = 14
     market_close_hour_utc: int = 20
+    exchange_timezone: str | None = "America/New_York"
+    session_open_local: str = "09:30"
+    session_close_local: str = "16:00"
     sleep_check_seconds: int = 20
     max_cycles: int | None = None
     stop_on_exception: bool = True
@@ -46,18 +59,36 @@ def is_market_hour(
     market_open_hour_utc: int = 14,
     market_close_hour_utc: int = 20,
 ) -> bool:
+    """Fixed-UTC-window check (legacy; not DST-aware)."""
     if timestamp_utc.dayofweek >= 5:
         return False
     return market_open_hour_utc <= timestamp_utc.hour <= market_close_hour_utc
 
 
+def is_exchange_session(
+    timestamp: pd.Timestamp,
+    exchange_timezone: str = "America/New_York",
+    session_open_local: str = "09:30",
+    session_close_local: str = "16:00",
+) -> bool:
+    """Return True when ``timestamp`` falls inside the local weekday session (inclusive)."""
+    ts = pd.Timestamp(timestamp)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    local = ts.tz_convert(exchange_timezone)
+    if local.dayofweek >= 5:
+        return False
+    open_t = dt_time.fromisoformat(session_open_local)
+    close_t = dt_time.fromisoformat(session_close_local)
+    return open_t <= local.time() <= close_t
+
+
+def utc_now() -> pd.Timestamp:
+    return pd.Timestamp.now(tz="UTC")
+
+
 def floor_to_hour(ts: pd.Timestamp) -> pd.Timestamp:
-    out = pd.Timestamp(ts)
-    if out.tzinfo is None:
-        out = out.tz_localize("UTC")
-    else:
-        out = out.tz_convert("UTC")
-    return out.floor("h")
+    return to_utc_timestamp(ts).floor("h")
 
 
 def next_hour(ts: pd.Timestamp) -> pd.Timestamp:
@@ -79,7 +110,7 @@ class HourlyLiveLoop:
         self._last_executed_hour: pd.Timestamp | None = None
 
     def run_once(self, decision_time: pd.Timestamp | None = None) -> LiveRunResult:
-        dt = floor_to_hour(decision_time or pd.Timestamp.utcnow())
+        dt = floor_to_hour(decision_time if decision_time is not None else utc_now())
         features = self.provider.get_features(dt)
         market_snapshot = self.provider.get_market_snapshot(dt)
         bench = self.provider.get_benchmark_return(dt)
@@ -98,6 +129,13 @@ class HourlyLiveLoop:
             return False
         if not self.config.run_only_market_hours:
             return True
+        if self.config.exchange_timezone:
+            return is_exchange_session(
+                hour,
+                exchange_timezone=self.config.exchange_timezone,
+                session_open_local=self.config.session_open_local,
+                session_close_local=self.config.session_close_local,
+            )
         return is_market_hour(
             hour,
             market_open_hour_utc=self.config.market_open_hour_utc,
@@ -108,13 +146,22 @@ class HourlyLiveLoop:
         results: list[LiveRunResult] = []
         cycles = 0
         while True:
-            now_utc = pd.Timestamp.utcnow().tz_localize("UTC") if pd.Timestamp.utcnow().tzinfo is None else pd.Timestamp.utcnow().tz_convert("UTC")
-            if self._should_run(now_utc):
+            now = utc_now()
+            if self._should_run(now):
+                hour = floor_to_hour(now)
                 try:
-                    result = self.run_once(floor_to_hour(now_utc))
+                    result = self.run_once(hour)
                     results.append(result)
                     cycles += 1
-                except Exception:
+                except Exception as exc:
+                    # Mark the hour as attempted so a persistent failure is not
+                    # retried every few seconds for the rest of the hour.
+                    self._last_executed_hour = hour
+                    self.runner.alert_router.critical(
+                        source="live_loop",
+                        message="Live cycle failed",
+                        details={"decision_time": hour.isoformat(), "error": repr(exc)},
+                    )
                     if self.config.stop_on_exception:
                         raise
             if self.config.max_cycles is not None and cycles >= self.config.max_cycles:
