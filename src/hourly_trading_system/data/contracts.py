@@ -18,6 +18,36 @@ REQUIRED_TIME_COLUMNS = [
 ]
 
 
+_TRUE_FLAGS = {"true", "t", "1", "y", "yes"}
+_FALSE_FLAGS = {"false", "f", "0", "n", "no"}
+
+
+def coerce_bool_flag(values: pd.Series, column: str = "is_member") -> pd.Series:
+    """
+    Strictly parse a boolean flag column (e.g. ``is_member``).
+
+    ``astype(bool)`` maps NaN and the string ``"False"`` to ``True``; this
+    helper accepts real booleans, 0/1 and common true/false spellings, and
+    raises on anything else (including missing values) instead of guessing.
+    """
+
+    def _parse(value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            raise ValueError(f"{column}: missing boolean value")
+        if isinstance(value, int | float) and value in (0, 1):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in _TRUE_FLAGS:
+            return True
+        if text in _FALSE_FLAGS:
+            return False
+        raise ValueError(f"{column}: cannot interpret {value!r} as a boolean")
+
+    return values.map(_parse).astype(bool)
+
+
 def _ensure_datetime(frame: pd.DataFrame, columns: Iterable[str]) -> pd.DataFrame:
     out = frame.copy()
     for col in columns:

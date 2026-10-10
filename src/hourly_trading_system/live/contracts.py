@@ -127,6 +127,9 @@ class FillEvent:
     fill_timestamp: datetime = field(default_factory=now_utc)
     venue: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Currency/asset the fee is charged in. ``None`` means the account's quote
+    # (cash) currency, which is how fees were interpreted historically.
+    fee_asset: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -140,6 +143,7 @@ class FillEvent:
             "fill_timestamp": self.fill_timestamp.isoformat(),
             "venue": self.venue,
             "metadata": self.metadata,
+            "fee_asset": self.fee_asset,
         }
 
     @staticmethod
@@ -191,6 +195,39 @@ class OrderStatusEvent:
         if data.get("last_fill"):
             data["last_fill"] = FillEvent.from_dict(data["last_fill"])
         return OrderStatusEvent(**data)
+
+
+@dataclass(slots=True)
+class AccountSnapshot:
+    """
+    Broker-reported account state used to seed and re-baseline the live runner.
+
+    ``positions`` maps symbol -> signed quantity; ``cash`` is settled cash (or
+    buying power) in the account's quote currency.
+    """
+
+    cash: float
+    positions: dict[str, float] = field(default_factory=dict)
+    equity: float | None = None
+    open_order_ids: list[str] = field(default_factory=list)
+    as_of: datetime = field(default_factory=now_utc)
+    source: str = "broker"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "cash": self.cash,
+            "positions": dict(self.positions),
+            "equity": self.equity,
+            "open_order_ids": list(self.open_order_ids),
+            "as_of": self.as_of.isoformat(),
+            "source": self.source,
+        }
+
+    @staticmethod
+    def from_dict(payload: dict[str, Any]) -> AccountSnapshot:
+        data = payload.copy()
+        data["as_of"] = datetime.fromisoformat(str(data["as_of"]))
+        return AccountSnapshot(**data)
 
 
 @dataclass(slots=True)

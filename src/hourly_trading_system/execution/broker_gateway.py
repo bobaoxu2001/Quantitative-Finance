@@ -20,7 +20,13 @@ from typing import Any
 from uuid import uuid4
 
 from hourly_trading_system.io_utils import atomic_write_text
-from hourly_trading_system.live.contracts import FillEvent, OrderAck, OrderRequest, OrderStatusEvent
+from hourly_trading_system.live.contracts import (
+    AccountSnapshot,
+    FillEvent,
+    OrderAck,
+    OrderRequest,
+    OrderStatusEvent,
+)
 
 
 def _now_utc() -> datetime:
@@ -60,6 +66,23 @@ class OMSClient(ABC):
     @abstractmethod
     def poll_order_updates(self, strategy_id: str, max_events: int = 200) -> list[OrderStatusEvent]:
         """Fetch incremental order status updates and optional fills."""
+
+    def get_account_snapshot(self) -> AccountSnapshot | None:
+        """
+        Return the broker's current positions and cash, or ``None`` if unsupported.
+
+        The live runner uses this to seed state at startup and to re-baseline
+        reconciliation, so a process restart never re-trades from a flat book.
+        """
+        return None
+
+    def normalize_orders(self, orders: list[OrderRequest]) -> list[OrderRequest]:
+        """
+        Venue-specific order normalisation (tick/lot rounding) applied before
+        submission and before expected-fill bookkeeping. Orders that round to
+        zero quantity must be dropped. The default is the identity.
+        """
+        return list(orders)
 
 
 class EMSClient(ABC):
