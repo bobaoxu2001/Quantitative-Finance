@@ -71,10 +71,12 @@ class PITStore:
         """
         if right_name not in self.tables:
             raise KeyError(f"Unknown PIT table '{right_name}'")
-        right = self.tables[right_name].frame.copy().sort_values(right_time_col)
-        left_sorted = left.copy().sort_values(left_time_col)
-        left_sorted[left_time_col] = pd.to_datetime(left_sorted[left_time_col], utc=True)
+        right = self.tables[right_name].frame.copy()
         right[right_time_col] = pd.to_datetime(right[right_time_col], utc=True)
+        right = right.sort_values(right_time_col)
+        left_sorted = left.copy()
+        left_sorted[left_time_col] = pd.to_datetime(left_sorted[left_time_col], utc=True)
+        left_sorted = left_sorted.sort_values(left_time_col)
 
         if right_by and right_by in left_sorted.columns and right_by in right.columns:
             merged = pd.merge_asof(

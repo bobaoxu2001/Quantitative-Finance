@@ -2,26 +2,35 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+import contextlib
 import hashlib
 import hmac
 import json
-from pathlib import Path
 import random
 import time
-from typing import Any, Callable
 import urllib.error
 import urllib.parse
 import urllib.request
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
-from hourly_trading_system.live.contracts import FillEvent, OrderAck, OrderRequest, OrderStatusEvent
+from hourly_trading_system.io_utils import atomic_write_text
+from hourly_trading_system.live.contracts import (
+    AccountSnapshot,
+    FillEvent,
+    OrderAck,
+    OrderRequest,
+    OrderStatusEvent,
+)
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass(slots=True)
@@ -58,6 +67,23 @@ class OMSClient(ABC):
     def poll_order_updates(self, strategy_id: str, max_events: int = 200) -> list[OrderStatusEvent]:
         """Fetch incremental order status updates and optional fills."""
 
+    def get_account_snapshot(self) -> AccountSnapshot | None:
+        """
+        Return the broker's current positions and cash, or ``None`` if unsupported.
+
+        The live runner uses this to seed state at startup and to re-baseline
+        reconciliation, so a process restart never re-trades from a flat book.
+        """
+        return None
+
+    def normalize_orders(self, orders: list[OrderRequest]) -> list[OrderRequest]:
+        """
+        Venue-specific order normalisation (tick/lot rounding) applied before
+        submission and before expected-fill bookkeeping. Orders that round to
+        zero quantity must be dropped. The default is the identity.
+        """
+        return list(orders)
+
 
 class EMSClient(ABC):
     """Execution management interface."""
@@ -72,7 +98,12 @@ class EMSClient(ABC):
 
 
 class PaperOMSClient(OMSClient):
-    """Paper-trading OMS implementation with deterministic order IDs."""
+    """
+    Paper-trading OMS that fills every accepted order immediately.
+
+    Fills are priced at the order's limit price when present (the worst price a
+    protected market order could get), otherwise at ``reference_price``.
+    """
 
     def __init__(self, audit_path: str | Path | None = None) -> None:
         self.audit_path = Path(audit_path) if audit_path else None
@@ -120,7 +151,11 @@ class PaperOMSClient(OMSClient):
             acks.append(ack)
             self._audit({"type": "accept", "order": order.to_dict(), "ack": ack.to_dict()})
 
-            fill_price = float(order.limit_price) if order.limit_price is not None else float(order.metadata.get("reference_price", 0.0))
+            fill_price = (
+                float(order.limit_price)
+                if order.limit_price is not None
+                else float(order.metadata.get("reference_price", 0.0))
+            )
             fill = FillEvent(
                 order_id=order_id,
                 symbol=order.symbol,
@@ -178,7 +213,7 @@ class HMACRequestSigner:
         self.passphrase = passphrase
 
     def sign(self, method: str, path: str, timestamp: str, body: str = "") -> str:
-        message = f"{timestamp}{method.upper()}{path}{body}".encode("utf-8")
+        message = f"{timestamp}{method.upper()}{path}{body}".encode()
         return hmac.new(self.api_secret, message, hashlib.sha256).hexdigest()
 
     def auth_headers(self, method: str, path: str, body: str = "") -> dict[str, str]:
@@ -252,15 +287,17 @@ class HTTPOMSClient(OMSClient):
         data = body.encode("utf-8") if payload is not None else None
         parsed = urllib.parse.urlparse(url)
         path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
-        headers = {"Content-Type": "application/json", **self.headers}
-        if self.signer is not None:
-            headers.update(self.signer.auth_headers(method=method, path=path, body=body))
-        if extra_headers:
-            headers.update(extra_headers)
 
         attempt = 0
         while True:
             attempt += 1
+            # Re-sign on every attempt: signatures embed a timestamp and are
+            # rejected by most venues once outside their receive window.
+            headers = {"Content-Type": "application/json", **self.headers}
+            if self.signer is not None:
+                headers.update(self.signer.auth_headers(method=method, path=path, body=body))
+            if extra_headers:
+                headers.update(extra_headers)
             request = urllib.request.Request(
                 url=url,
                 data=data,
@@ -275,7 +312,8 @@ class HTTPOMSClient(OMSClient):
                         raise urllib.error.HTTPError(url, status, f"retryable {status}", hdrs=None, fp=None)
                     return json.loads(text) if text else {}
             except urllib.error.HTTPError as exc:
-                if exc.code not in self.retry_policy.retriable_status_codes or attempt >= self.retry_policy.max_attempts:
+                retriable = exc.code in self.retry_policy.retriable_status_codes
+                if not retriable or attempt >= self.retry_policy.max_attempts:
                     raise
             except urllib.error.URLError:
                 if attempt >= self.retry_policy.max_attempts:
@@ -444,7 +482,7 @@ class BrokerWebSocketClient:
     def _persist_sequence(self) -> None:
         if self.sequence_state_path is None or self.last_sequence is None:
             return
-        self.sequence_state_path.write_text(str(self.last_sequence), encoding="utf-8")
+        atomic_write_text(self.sequence_state_path, str(self.last_sequence))
 
     def _subscribe_message(self) -> dict[str, Any] | None:
         if self.subscribe_message_factory is None:
@@ -455,18 +493,28 @@ class BrokerWebSocketClient:
             # Allow factory to accept resume sequence as optional arg.
             return self.subscribe_message_factory(self.last_sequence)  # type: ignore[misc]
 
-    def _handle_sequence(self, message: dict[str, Any]) -> None:
+    def _sequence_of(self, message: dict[str, Any]) -> int | None:
         if self.sequence_field is None:
-            return
+            return None
         seq_value = message.get(self.sequence_field)
         if seq_value is None:
-            return
+            return None
         try:
-            sequence = int(seq_value)
-        except Exception:
-            return
+            return int(seq_value)
+        except (TypeError, ValueError):
+            return None
+
+    def _accept_sequence(self, message: dict[str, Any]) -> bool:
+        """
+        Return False for stale/duplicate messages; replay any detected gap first.
+
+        Does not advance the checkpoint -- see :meth:`_commit_sequence`.
+        """
+        sequence = self._sequence_of(message)
+        if sequence is None:
+            return True
         if self.last_sequence is not None and sequence <= self.last_sequence:
-            return
+            return False
         if self.last_sequence is not None and sequence > self.last_sequence + 1:
             if self.on_error is not None:
                 self.on_error(
@@ -482,8 +530,21 @@ class BrokerWebSocketClient:
                 except Exception as exc:
                     if self.on_error is not None:
                         self.on_error(exc)
+        return True
+
+    def _commit_sequence(self, message: dict[str, Any]) -> None:
+        sequence = self._sequence_of(message)
+        if sequence is None:
+            return
         self.last_sequence = sequence
         self._persist_sequence()
+
+    def _handle_sequence(self, message: dict[str, Any]) -> bool:
+        """Gap-check and checkpoint one message; return False if it must be skipped."""
+        if not self._accept_sequence(message):
+            return False
+        self._commit_sequence(message)
+        return True
 
     def run_forever(self) -> None:
         try:
@@ -518,8 +579,12 @@ class BrokerWebSocketClient:
                     if raw is None:
                         break
                     msg = json.loads(raw)
-                    self._handle_sequence(msg)
+                    if not self._accept_sequence(msg):
+                        continue  # stale or duplicate sequence: already delivered
                     self.on_message(msg)
+                    # Checkpoint only after successful delivery (at-least-once);
+                    # the downstream event store makes processing exactly-once.
+                    self._commit_sequence(msg)
             except Exception as exc:  # pragma: no cover
                 attempts += 1
                 if self.on_error:
@@ -529,10 +594,8 @@ class BrokerWebSocketClient:
                 time.sleep(min(2 ** attempts, 30))
             finally:
                 if ws is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         ws.close()
-                    except Exception:
-                        pass
 
     def stop(self) -> None:
         self._running = False

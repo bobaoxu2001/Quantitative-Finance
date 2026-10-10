@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from hourly_trading_system.analytics import LiveTCAAttributor
 from hourly_trading_system.execution import (
@@ -89,7 +89,7 @@ def test_live_tca_attributor_and_ws_sequence_checkpoint(tmp_path) -> None:
         accepted=True,
         status="accepted",
         client_order_id="cid-1",
-        broker_timestamp=datetime.now(timezone.utc),
+        broker_timestamp=datetime.now(UTC),
     )
     tca.register_submissions([req], [ack])
     row = tca.record_fill(

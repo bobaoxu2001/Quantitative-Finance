@@ -20,6 +20,29 @@ class PortfolioDecision:
     reason: str = "normal"
 
 
+def estimate_portfolio_volatility(
+    weights: pd.Series,
+    hourly_vol: pd.Series,
+    assumed_correlation: float = 0.3,
+    periods_per_year: float = 252 * 6.5,
+) -> float:
+    """
+    Annualised portfolio volatility under a constant-correlation model.
+
+    sigma_p^2 = (1 - rho) * sum_i (w_i sigma_i)^2 + rho * (sum_i w_i sigma_i)^2
+
+    ``rho = 0`` reduces to the diagonal (independent assets) approximation and
+    ``rho = 1`` to perfectly correlated assets. Equity books typically sit at
+    rho ~ 0.2-0.4; ignoring correlation materially understates risk.
+    """
+    if weights.empty:
+        return 0.0
+    contrib = (weights * hourly_vol.reindex(weights.index)).fillna(0.0)
+    rho = float(np.clip(assumed_correlation, 0.0, 1.0))
+    variance = (1.0 - rho) * float((contrib**2).sum()) + rho * float(contrib.sum()) ** 2
+    return float(np.sqrt(max(variance, 0.0)) * np.sqrt(periods_per_year))
+
+
 def _cap_and_redistribute(weights: pd.Series, max_weight: float, max_iter: int = 20) -> pd.Series:
     out = weights.copy()
     out = out.clip(lower=0.0)
@@ -52,7 +75,24 @@ class HourlyPortfolioAllocator:
         selection_quantile: float = 0.0,
         score_power: float = 1.0,
         min_total_exposure: float = 0.0,
+        vol_column: str = "rv_20h",
+        vol_horizon_bars: int = 20,
+        assumed_correlation: float = 0.3,
+        periods_per_year: float = 252 * 6.5,
     ) -> None:
+        """
+        Parameters
+        ----------
+        vol_column, vol_horizon_bars:
+            Column holding realised volatility and the number of hourly bars it
+            spans. ``rv_20h`` is a 20-bar horizon volatility (``std * sqrt(20)``),
+            so it is divided by ``sqrt(vol_horizon_bars)`` to get hourly vol
+            before annualising. Use ``vol_horizon_bars=1`` for hourly vol input.
+        assumed_correlation:
+            Constant pairwise correlation used for the portfolio risk estimate.
+        periods_per_year:
+            Hourly bars per year used for annualisation.
+        """
         self.config = config
         self.downside_penalty = downside_penalty
         self.cost_penalty = cost_penalty
@@ -60,6 +100,19 @@ class HourlyPortfolioAllocator:
         self.selection_quantile = float(np.clip(selection_quantile, 0.0, 1.0))
         self.score_power = max(float(score_power), 0.1)
         self.min_total_exposure = float(np.clip(min_total_exposure, 0.0, 1.0))
+        self.vol_column = vol_column
+        self.vol_horizon_bars = max(int(vol_horizon_bars), 1)
+        self.assumed_correlation = float(np.clip(assumed_correlation, 0.0, 1.0))
+        self.periods_per_year = float(periods_per_year)
+
+    def _hourly_vol(self, selected: pd.DataFrame) -> pd.Series:
+        if self.vol_column in selected.columns:
+            raw = selected.set_index("symbol")[self.vol_column].astype(float)
+        else:
+            raw = pd.Series(np.nan, index=selected["symbol"], dtype=float)
+        hourly = raw.where(raw > 0.0) / np.sqrt(self.vol_horizon_bars)
+        fallback = float(hourly.median()) if hourly.notna().any() else 0.01
+        return hourly.fillna(fallback)
 
     def allocate(
         self,
@@ -75,6 +128,10 @@ class HourlyPortfolioAllocator:
         Required columns:
           predictions: symbol, expected_excess_return, downside_probability
           market_snapshot: symbol, close, volume, sector, rv_20h
+
+        Symbols present in ``current_weights`` but absent from the new target
+        (e.g. names that dropped out of the universe) are treated as target 0
+        and are subject to the same turnover budget as every other trade.
         """
         if predictions.empty or market_snapshot.empty or risk_scaler <= 0.0:
             return PortfolioDecision(
@@ -165,8 +222,13 @@ class HourlyPortfolioAllocator:
             raw_weights = _cap_and_redistribute(raw_weights, self.config.max_position_weight)
 
         # Volatility scaling to keep within target band without leverage.
-        per_asset_vol = selected.set_index("symbol")["rv_20h"].replace(0.0, np.nan).fillna(0.03)
-        estimated_portfolio_vol = float(np.sqrt(np.sum((raw_weights * per_asset_vol) ** 2)) * np.sqrt(252 * 6.5))
+        per_asset_vol = self._hourly_vol(selected)
+        estimated_portfolio_vol = estimate_portfolio_volatility(
+            raw_weights,
+            per_asset_vol,
+            assumed_correlation=self.assumed_correlation,
+            periods_per_year=self.periods_per_year,
+        )
         target_mid = (self.config.target_vol_lower + self.config.target_vol_upper) / 2
         if estimated_portfolio_vol > self.config.target_vol_upper and estimated_portfolio_vol > 0:
             scale = target_mid / estimated_portfolio_vol
@@ -188,13 +250,19 @@ class HourlyPortfolioAllocator:
             raw_weights = _cap_and_redistribute(raw_weights, self.config.max_position_weight)
             raw_weights *= min(effective_min_exposure, 1.0) / max(float(raw_weights.sum()), 1e-9)
 
-        # Turnover control using blend with existing weights.
-        current = current_weights.reindex(raw_weights.index).fillna(0.0)
-        turnover = float((raw_weights - current).abs().sum())
+        # Turnover control using blend with existing weights. The universe is the
+        # union of target and currently held names, so liquidating a name that is
+        # no longer in the target also consumes turnover budget.
+        universe = raw_weights.index.union(current_weights.index)
+        current = current_weights.reindex(universe).fillna(0.0)
+        target = raw_weights.reindex(universe).fillna(0.0)
+        turnover = float((target - current).abs().sum())
         if turnover > self.config.max_turnover_per_rebalance:
             blend = self.config.max_turnover_per_rebalance / turnover
-            raw_weights = current + blend * (raw_weights - current)
-            turnover = float((raw_weights - current).abs().sum())
+            target = current + blend * (target - current)
+            turnover = float((target - current).abs().sum())
+        raw_weights = target.clip(lower=0.0)
+        raw_weights = raw_weights.loc[raw_weights > 1e-12]
 
         cash_weight = float(max(0.0, 1.0 - raw_weights.sum()))
         return PortfolioDecision(

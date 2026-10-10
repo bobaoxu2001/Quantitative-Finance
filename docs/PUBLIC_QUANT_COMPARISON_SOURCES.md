@@ -53,11 +53,11 @@ This document provides source references for the `README` comparison section and
   - https://www.man.com/document?doc-type=TAP&instrument=rs30508&locale=en
   - https://www.trustnet.com/factsheets/B/ED50/man-ahl-diversified-plc-dn
 
-### `this_repo_test_snapshot`
+### `this_repo_test_snapshot` (removed)
 
-- Repository-generated test snapshot in README from:
-  - `outputs/equity_curve.csv`
-  - `outputs/model_result_summary.json`
+- The repository demo row was removed from the comparison: it was a two-month
+  backtest on synthetic random walks, produced by an engine version with
+  accounting bugs, and is not comparable to real-money track records.
 
 ## Method notes (important)
 

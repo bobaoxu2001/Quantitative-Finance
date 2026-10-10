@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -16,8 +16,8 @@ from hourly_trading_system.governance import CanaryPolicy, ModelRegistry, determ
 from hourly_trading_system.live.alerting import AlertRouter
 from hourly_trading_system.live.contracts import AlertSeverity, OrderRequest, QueueMessage, now_utc
 from hourly_trading_system.live.control_plane import LiveControlPlane
-from hourly_trading_system.live.reconciliation import FillReconciler
 from hourly_trading_system.live.realtime_queue import BaseRealtimeQueue, InMemoryRealtimeQueue
+from hourly_trading_system.live.reconciliation import FillReconciler
 from hourly_trading_system.portfolio import HourlyPortfolioAllocator
 from hourly_trading_system.risk import LiveSafetyGuard, RiskController
 
@@ -74,6 +74,8 @@ class LiveTradingRunner:
         self.expected_cash: float = float(config.initial_capital)
         self.last_trade_day: pd.Timestamp | None = None
         self.canary_policy = CanaryPolicy()
+        self.last_prices: dict[str, float] = {}
+        self._last_equity: float | None = None
 
     def _sync_control_plane(self) -> None:
         if self.control_plane is None:
@@ -84,7 +86,8 @@ class LiveTradingRunner:
                 self.safety_guard.engage_kill_switch(f"control_plane:{state.kill_reason or 'forced'}")
             return
         # Allow reset when kill switch was externally released.
-        if self.safety_guard.kill_switch_engaged and str(self.safety_guard.kill_switch_reason).startswith("control_plane:"):
+        released_by_control_plane = str(self.safety_guard.kill_switch_reason).startswith("control_plane:")
+        if self.safety_guard.kill_switch_engaged and released_by_control_plane:
             self.safety_guard.reset_kill_switch()
 
     def _publish_event(self, topic: str, payload: dict[str, Any]) -> None:
@@ -154,12 +157,22 @@ class LiveTradingRunner:
             canary_allocation,
         )
 
+    def _mark_price(self, symbol: str, prices: dict[str, float]) -> float:
+        """Current close if quoted, else the last observed price (never zero for a held name)."""
+        price = prices.get(symbol)
+        if price is not None and float(price) > 0:
+            return float(price)
+        return float(self.last_prices.get(symbol, 0.0))
+
     def _current_weights(self, market_snapshot: pd.DataFrame, equity: float) -> pd.Series:
         prices = market_snapshot.set_index("symbol")["close"].to_dict()
-        notionals = {sym: qty * float(prices.get(sym, 0.0)) for sym, qty in self.current_positions.items()}
+        notionals = {sym: qty * self._mark_price(sym, prices) for sym, qty in self.current_positions.items()}
         if equity <= 0:
             return pd.Series(dtype=float)
-        return pd.Series({sym: notional / equity for sym, notional in notionals.items() if abs(notional) > 0}, dtype=float)
+        return pd.Series(
+            {sym: notional / equity for sym, notional in notionals.items() if abs(notional) > 0},
+            dtype=float,
+        )
 
     def _build_client_order_id(self, decision_time: pd.Timestamp, symbol: str, side: str, quantity: float) -> str:
         key = f"{self.strategy_id}|{decision_time.isoformat()}|{symbol}|{side}|{quantity:.6f}"
@@ -214,7 +227,10 @@ class LiveTradingRunner:
         expected_cash: float,
         order: OrderRequest,
     ) -> float:
-        px = float(order.limit_price) if order.limit_price is not None else float(order.metadata.get("reference_price", 0.0))
+        if order.limit_price is not None:
+            px = float(order.limit_price)
+        else:
+            px = float(order.metadata.get("reference_price", 0.0))
         if px <= 0:
             return expected_cash
         signed = order.quantity if order.side.upper() == "BUY" else -order.quantity
@@ -304,10 +320,18 @@ class LiveTradingRunner:
             )
 
         prices = market_snapshot.set_index("symbol")["close"].to_dict()
-        invested = sum(self.current_positions.get(sym, 0.0) * float(px) for sym, px in prices.items())
+        # Value every held position -- including names missing from this
+        # snapshot -- so equity is not understated by unquoted holdings.
+        invested = sum(qty * self._mark_price(sym, prices) for sym, qty in self.current_positions.items())
+        self.last_prices.update({sym: float(px) for sym, px in prices.items() if float(px) > 0})
         equity = float(self.cash + invested)
         if equity <= 0:
             raise RuntimeError("Equity is non-positive. Live runner cannot proceed.")
+        if self._last_equity is not None and self._last_equity > 0:
+            self.risk_controller.register_return(
+                equity / self._last_equity - 1.0, benchmark_return=benchmark_return
+            )
+        self._last_equity = equity
 
         current_day = decision_time.normalize()
         is_new_day = self.last_trade_day is None or current_day != self.last_trade_day
@@ -332,7 +356,7 @@ class LiveTradingRunner:
                 metadata={"halt_reason": self.safety_guard.kill_switch_reason},
             )
 
-        risk_state = self.risk_controller.update(equity, benchmark_return=benchmark_return)
+        risk_state = self.risk_controller.update(equity)
         prediction_frame, used_champion, used_canary, canary_allocation = self._score(
             features=features,
             decision_time=decision_time,

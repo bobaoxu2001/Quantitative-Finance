@@ -67,7 +67,7 @@ class SystemConfig:
         return asdict(self)
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "SystemConfig":
+    def from_dict(payload: dict[str, Any]) -> SystemConfig:
         return SystemConfig(
             timezone=payload.get("timezone", "America/New_York"),
             initial_capital=float(payload.get("initial_capital", 100_000.0)),

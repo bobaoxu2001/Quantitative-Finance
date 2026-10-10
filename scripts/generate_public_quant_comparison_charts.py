@@ -8,7 +8,6 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / "docs" / "public_quant_model_comparison.csv"
 OUT_DIR = ROOT / "docs" / "assets"

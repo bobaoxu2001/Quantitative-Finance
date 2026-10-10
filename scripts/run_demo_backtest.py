@@ -26,7 +26,9 @@ def _hourly_market_calendar(start: str, end: str) -> pd.DatetimeIndex:
     return idx[(idx.hour >= 14) & (idx.hour <= 20) & (idx.dayofweek < 5)]
 
 
-def make_synthetic_market_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def make_synthetic_market_data() -> tuple[
+    pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame
+]:
     rng = np.random.default_rng(42)
     symbols = ["SPY", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "JPM", "XOM", "JNJ", "PG", "UNH"]
     sectors = {
@@ -85,7 +87,8 @@ def make_synthetic_market_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFra
         for t in pd.date_range("2023-01-01", "2026-02-26", freq="7D", tz="UTC"):
             is_member = sym != "SPY"
             # Simulate rare constituent exit/re-entry.
-            if sym in {"PG", "UNH"} and pd.Timestamp("2025-06-01", tz="UTC") <= t <= pd.Timestamp("2025-08-31", tz="UTC"):
+            exit_window = pd.Timestamp("2025-06-01", tz="UTC") <= t <= pd.Timestamp("2025-08-31", tz="UTC")
+            if sym in {"PG", "UNH"} and exit_window:
                 is_member = False
             membership_rows.append(
                 {

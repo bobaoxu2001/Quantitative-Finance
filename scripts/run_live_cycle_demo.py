@@ -97,7 +97,6 @@ def main() -> None:
     )
 
     decision_time = market["event_time"].iloc[-2]
-    market_t = market.loc[market["event_time"] == decision_time].copy()
     from hourly_trading_system.features import build_feature_panel
 
     panel = build_feature_panel(

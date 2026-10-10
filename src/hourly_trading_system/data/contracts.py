@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable
 
 import pandas as pd
+
+from hourly_trading_system.time_utils import to_utc_timestamp
 
 REQUIRED_TIME_COLUMNS = [
     "event_time",
@@ -14,6 +16,36 @@ REQUIRED_TIME_COLUMNS = [
     "ingest_time",
     "known_time",
 ]
+
+
+_TRUE_FLAGS = {"true", "t", "1", "y", "yes"}
+_FALSE_FLAGS = {"false", "f", "0", "n", "no"}
+
+
+def coerce_bool_flag(values: pd.Series, column: str = "is_member") -> pd.Series:
+    """
+    Strictly parse a boolean flag column (e.g. ``is_member``).
+
+    ``astype(bool)`` maps NaN and the string ``"False"`` to ``True``; this
+    helper accepts real booleans, 0/1 and common true/false spellings, and
+    raises on anything else (including missing values) instead of guessing.
+    """
+
+    def _parse(value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            raise ValueError(f"{column}: missing boolean value")
+        if isinstance(value, int | float) and value in (0, 1):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in _TRUE_FLAGS:
+            return True
+        if text in _FALSE_FLAGS:
+            return False
+        raise ValueError(f"{column}: cannot interpret {value!r} as a boolean")
+
+    return values.map(_parse).astype(bool)
 
 
 def _ensure_datetime(frame: pd.DataFrame, columns: Iterable[str]) -> pd.DataFrame:
@@ -50,11 +82,7 @@ def enforce_information_set(frame: pd.DataFrame, decision_time: datetime) -> pd.
     """
     if frame.empty:
         return frame.copy()
-    decision_ts = pd.Timestamp(decision_time)
-    if decision_ts.tzinfo is None:
-        decision_ts = decision_ts.tz_localize("UTC")
-    else:
-        decision_ts = decision_ts.tz_convert("UTC")
+    decision_ts = to_utc_timestamp(decision_time)
     dtf = frame.copy()
     dtf["known_time"] = pd.to_datetime(dtf["known_time"], utc=True)
     return dtf.loc[dtf["known_time"] < decision_ts].copy()
@@ -72,7 +100,7 @@ class DataSnapshot:
     analyst: pd.DataFrame
     membership: pd.DataFrame
 
-    def enforce(self) -> "DataSnapshot":
+    def enforce(self) -> DataSnapshot:
         """Apply information-set filter to all contained datasets."""
         return DataSnapshot(
             decision_time=self.decision_time,

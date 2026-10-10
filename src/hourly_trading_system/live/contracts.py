@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -11,7 +11,7 @@ from uuid import uuid4
 
 def now_utc() -> datetime:
     """Return timezone-aware UTC datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class AlertSeverity(StrEnum):
@@ -47,7 +47,7 @@ class QueueMessage:
         return data
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "QueueMessage":
+    def from_dict(payload: dict[str, Any]) -> QueueMessage:
         out = payload.copy()
         out["timestamp"] = datetime.fromisoformat(out["timestamp"])
         return QueueMessage(**out)
@@ -127,6 +127,9 @@ class FillEvent:
     fill_timestamp: datetime = field(default_factory=now_utc)
     venue: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Currency/asset the fee is charged in. ``None`` means the account's quote
+    # (cash) currency, which is how fees were interpreted historically.
+    fee_asset: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -140,10 +143,11 @@ class FillEvent:
             "fill_timestamp": self.fill_timestamp.isoformat(),
             "venue": self.venue,
             "metadata": self.metadata,
+            "fee_asset": self.fee_asset,
         }
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "FillEvent":
+    def from_dict(payload: dict[str, Any]) -> FillEvent:
         data = payload.copy()
         data["fill_timestamp"] = datetime.fromisoformat(str(data["fill_timestamp"]))
         return FillEvent(**data)
@@ -185,12 +189,45 @@ class OrderStatusEvent:
         }
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "OrderStatusEvent":
+    def from_dict(payload: dict[str, Any]) -> OrderStatusEvent:
         data = payload.copy()
         data["broker_timestamp"] = datetime.fromisoformat(str(data["broker_timestamp"]))
         if data.get("last_fill"):
             data["last_fill"] = FillEvent.from_dict(data["last_fill"])
         return OrderStatusEvent(**data)
+
+
+@dataclass(slots=True)
+class AccountSnapshot:
+    """
+    Broker-reported account state used to seed and re-baseline the live runner.
+
+    ``positions`` maps symbol -> signed quantity; ``cash`` is settled cash (or
+    buying power) in the account's quote currency.
+    """
+
+    cash: float
+    positions: dict[str, float] = field(default_factory=dict)
+    equity: float | None = None
+    open_order_ids: list[str] = field(default_factory=list)
+    as_of: datetime = field(default_factory=now_utc)
+    source: str = "broker"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "cash": self.cash,
+            "positions": dict(self.positions),
+            "equity": self.equity,
+            "open_order_ids": list(self.open_order_ids),
+            "as_of": self.as_of.isoformat(),
+            "source": self.source,
+        }
+
+    @staticmethod
+    def from_dict(payload: dict[str, Any]) -> AccountSnapshot:
+        data = payload.copy()
+        data["as_of"] = datetime.fromisoformat(str(data["as_of"]))
+        return AccountSnapshot(**data)
 
 
 @dataclass(slots=True)
@@ -210,6 +247,7 @@ class ModelVersionRecord:
     approved_by: str | None = None
     rejection_reason: str | None = None
     rolled_from_version: str | None = None
+    artifact_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -218,7 +256,7 @@ class ModelVersionRecord:
         return out
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "ModelVersionRecord":
+    def from_dict(payload: dict[str, Any]) -> ModelVersionRecord:
         data = payload.copy()
         data["status"] = ModelApprovalStatus(data["status"])
         data["created_at"] = datetime.fromisoformat(data["created_at"])
@@ -247,7 +285,7 @@ class DeploymentState:
         }
 
     @staticmethod
-    def from_dict(payload: dict[str, Any]) -> "DeploymentState":
+    def from_dict(payload: dict[str, Any]) -> DeploymentState:
         data = payload.copy()
         if data.get("rollout_started_at"):
             data["rollout_started_at"] = datetime.fromisoformat(data["rollout_started_at"])

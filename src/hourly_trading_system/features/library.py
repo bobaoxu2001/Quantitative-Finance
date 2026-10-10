@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
@@ -103,25 +103,39 @@ def _rolling_max_drawdown_from_returns(returns: pd.Series, window: int = 20) -> 
     return dd.rolling(window=window, min_periods=1).min()
 
 
+def _by_symbol(series: pd.Series, symbols: pd.Series, func) -> pd.Series:
+    """Apply a per-symbol time-series transform while preserving index alignment."""
+    return series.groupby(symbols, sort=False).transform(func)
+
+
 def _asof_join_symbol(
     left: pd.DataFrame,
     right: pd.DataFrame | None,
     feature_map: dict[str, str],
     known_time_col: str = "known_time",
+    known_time_alias: str | None = None,
 ) -> pd.DataFrame:
+    """
+    Attach the latest right-hand record per symbol known strictly before event_time.
+
+    When ``known_time_alias`` is provided, the matched record's ``known_time`` is
+    retained under that name so downstream freshness features can age correctly.
+    """
     if right is None or right.empty:
         return left
-    available_src = [src for src in feature_map.keys() if src in right.columns]
-    if not available_src:
-        return left
-    use_cols = {"symbol", known_time_col, *available_src}
     if known_time_col not in right.columns or "symbol" not in right.columns:
+        return left
+    available_src = [src for src in feature_map if src in right.columns]
+    if not available_src:
         return left
 
     out = left.sort_values(["event_time", "symbol"]).copy()
-    rhs = right.loc[:, sorted(use_cols)].copy().sort_values([known_time_col, "symbol"])
     out["event_time"] = pd.to_datetime(out["event_time"], utc=True)
+    rhs = right.loc[:, ["symbol", known_time_col, *available_src]].copy()
     rhs[known_time_col] = pd.to_datetime(rhs[known_time_col], utc=True)
+    rhs = rhs.sort_values([known_time_col, "symbol"])
+    if known_time_alias:
+        rhs[known_time_alias] = rhs[known_time_col]
 
     merged = pd.merge_asof(
         out,
@@ -133,9 +147,9 @@ def _asof_join_symbol(
         direction="backward",
     )
     for src_col in available_src:
-        dst_col = feature_map[src_col]
-        merged[dst_col] = merged[src_col]
-    return merged.drop(columns=available_src + [known_time_col], errors="ignore")
+        merged[feature_map[src_col]] = merged[src_col]
+    drop_cols = [col for col in [*available_src, known_time_col] if col not in feature_map.values()]
+    return merged.drop(columns=drop_cols, errors="ignore")
 
 
 def _asof_join_global(
@@ -144,16 +158,17 @@ def _asof_join_global(
     feature_map: dict[str, str],
     known_time_col: str = "known_time",
 ) -> pd.DataFrame:
+    """Attach the latest market-wide record known strictly before event_time."""
     if right is None or right.empty:
         return left
-    available_src = [src for src in feature_map.keys() if src in right.columns]
+    available_src = [src for src in feature_map if src in right.columns]
     if not available_src or known_time_col not in right.columns:
         return left
-    use_cols = {known_time_col, *available_src}
     out = left.sort_values("event_time").copy()
-    rhs = right.loc[:, sorted(use_cols)].copy().sort_values(known_time_col)
     out["event_time"] = pd.to_datetime(out["event_time"], utc=True)
+    rhs = right.loc[:, [known_time_col, *available_src]].copy()
     rhs[known_time_col] = pd.to_datetime(rhs[known_time_col], utc=True)
+    rhs = rhs.sort_values(known_time_col)
     merged = pd.merge_asof(
         out,
         rhs,
@@ -163,13 +178,14 @@ def _asof_join_global(
         direction="backward",
     )
     for src_col in available_src:
-        dst_col = feature_map[src_col]
-        merged[dst_col] = merged[src_col]
-    return merged.drop(columns=available_src + [known_time_col], errors="ignore")
+        merged[feature_map[src_col]] = merged[src_col]
+    drop_cols = [col for col in [*available_src, known_time_col] if col not in feature_map.values()]
+    return merged.drop(columns=drop_cols, errors="ignore")
 
 
-def _safe_rank(series: pd.Series, ascending: bool = True) -> pd.Series:
-    return series.rank(pct=True, method="average", ascending=ascending)
+def _hours_since(event_time: pd.Series, reference: pd.Series) -> pd.Series:
+    reference_ts = pd.to_datetime(reference, utc=True, errors="coerce")
+    return (event_time - reference_ts).dt.total_seconds() / 3600.0
 
 
 def build_feature_panel(
@@ -214,10 +230,9 @@ def build_feature_panel(
     df["close_open_ret"] = df["close"] / df["open"].replace(0.0, np.nan) - 1.0
     df["dollar_volume"] = df["close"] * df["volume"]
 
+    symbols = df["symbol"]
     rolling_volume = grouped["volume"].transform(lambda s: s.rolling(20, min_periods=5).sum())
-    rolling_pv = grouped.apply(
-        lambda g: (g["close"] * g["volume"]).rolling(20, min_periods=5).sum()
-    ).reset_index(level=0, drop=True)
+    rolling_pv = _by_symbol(df["dollar_volume"], symbols, lambda s: s.rolling(20, min_periods=5).sum())
     vwap_20h = rolling_pv / rolling_volume.replace(0.0, np.nan)
     df["dist_to_vwap_20h"] = df["close"] / vwap_20h - 1.0
     df["rsi_14h"] = grouped["close"].transform(_compute_rsi)
@@ -243,16 +258,13 @@ def build_feature_panel(
     log_hl = np.log(df["high"] / df["low"].replace(0.0, np.nan))
     log_co = np.log(df["close"] / df["open"].replace(0.0, np.nan))
     gk_component = 0.5 * log_hl ** 2 - (2 * np.log(2) - 1) * log_co ** 2
-    df["garman_klass_vol_20h"] = grouped.apply(
-        lambda g: gk_component.loc[g.index].rolling(20, min_periods=10).mean().pipe(np.sqrt)
-    ).reset_index(level=0, drop=True) * np.sqrt(TRADING_HOURS_PER_YEAR)
+    df["garman_klass_vol_20h"] = np.sqrt(
+        _by_symbol(gk_component, symbols, lambda s: s.rolling(20, min_periods=10).mean())
+    ) * np.sqrt(TRADING_HOURS_PER_YEAR)
 
     # Parkinson high-low volatility estimator.
-    df["parkinson_vol_20h"] = grouped.apply(
-        lambda g: (log_hl.loc[g.index] ** 2).rolling(20, min_periods=10).mean().pipe(
-            lambda s: np.sqrt(s / (4 * np.log(2)))
-        )
-    ).reset_index(level=0, drop=True) * np.sqrt(TRADING_HOURS_PER_YEAR)
+    parkinson_var = _by_symbol(log_hl**2, symbols, lambda s: s.rolling(20, min_periods=10).mean())
+    df["parkinson_vol_20h"] = np.sqrt(parkinson_var / (4 * np.log(2))) * np.sqrt(TRADING_HOURS_PER_YEAR)
 
     # Kyle's lambda: price impact proxy = |return| / volume.
     kyle_raw = df["ret_1h"].abs() / df["volume"].replace(0.0, np.nan)
@@ -275,11 +287,8 @@ def build_feature_panel(
     dvol_std = grouped["dollar_volume"].transform(lambda s: s.rolling(20, min_periods=5).std())
     df["dollar_vol_z_20h"] = (df["dollar_volume"] - dvol_mean) / dvol_std.replace(0.0, np.nan)
     df["turnover_proxy"] = df["volume"] / df["shares_outstanding"].replace(0.0, np.nan)
-    df["amihud_20h"] = grouped.apply(
-        lambda g: (g["ret_1h"].abs() / g["dollar_volume"].replace(0.0, np.nan))
-        .rolling(20, min_periods=5)
-        .mean()
-    ).reset_index(level=0, drop=True)
+    amihud_raw = df["ret_1h"].abs() / df["dollar_volume"].replace(0.0, np.nan)
+    df["amihud_20h"] = _by_symbol(amihud_raw, symbols, lambda s: s.rolling(20, min_periods=5).mean())
     df["hl_spread_proxy"] = (df["high"] - df["low"]) / df["close"].replace(0.0, np.nan)
     df["participation_need"] = target_participation / (
         grouped["volume"].transform(lambda s: s.rolling(20, min_periods=5).mean()).replace(0.0, np.nan)
@@ -314,13 +323,14 @@ def build_feature_panel(
     df["idio_vol_60h"] = residual.groupby(df["symbol"]).transform(
         lambda s: s.rolling(60, min_periods=20).std()
     ) * np.sqrt(TRADING_HOURS_PER_YEAR)
-    df["residual_mom_10h"] = (
-        df["mom_10h"] - df["beta_spy_60h"] * df["spy_ret_1h"].groupby(df["symbol"]).transform(lambda s: s.rolling(10, min_periods=3).sum())
-    )
+    spy_ret_10h = df["spy_ret_1h"].groupby(df["symbol"]).transform(lambda s: s.rolling(10, min_periods=3).sum())
+    df["residual_mom_10h"] = df["mom_10h"] - df["beta_spy_60h"] * spy_ret_10h
 
-    df["sector_rel_rank_5h"] = df.groupby(["event_time", "sector"])["ret_5h"].transform(_safe_rank)
-    df["reversal_rank_1h"] = df.groupby("event_time")["ret_1h"].transform(lambda s: _safe_rank(-s))
-    df["breadth_percentile"] = df.groupby("event_time")["ret_1h"].transform(_safe_rank)
+    # Cross-sectional ranks use vectorized groupby.rank (one pass, no per-hour lambdas).
+    by_time = df.groupby("event_time", sort=False)
+    df["sector_rel_rank_5h"] = df.groupby(["event_time", "sector"], sort=False)["ret_5h"].rank(pct=True)
+    df["reversal_rank_1h"] = by_time["ret_1h"].rank(pct=True, ascending=False)
+    df["breadth_percentile"] = by_time["ret_1h"].rank(pct=True)
 
     df = _asof_join_symbol(
         df,
@@ -335,6 +345,7 @@ def build_feature_panel(
             "roe_ttm": "f_roe_ttm",
             "net_debt_ebitda": "f_net_debt_ebitda",
         },
+        known_time_alias="fundamental_known_time",
     )
     df = _asof_join_symbol(
         df,
@@ -346,6 +357,7 @@ def build_feature_panel(
             "hours_since_update": "hours_since_sentiment_update",
             "sentiment_update_time": "sentiment_update_time",
         },
+        known_time_alias="sentiment_known_time",
     )
     df = _asof_join_symbol(
         df,
@@ -356,6 +368,7 @@ def build_feature_panel(
             "hours_since_update": "hours_since_analyst_update",
             "analyst_update_time": "analyst_update_time",
         },
+        known_time_alias="analyst_known_time",
     )
     df = _asof_join_global(
         df,
@@ -378,24 +391,27 @@ def build_feature_panel(
         df["sent_mom_6h"] = df.groupby("symbol")["sent_level"].transform(lambda s: s - s.shift(6))
     else:
         df["sent_mom_6h"] = np.nan
+
+    # Freshness features age with wall-clock time: hours between the decision bar
+    # and the moment the latest record became known (or its explicit update time).
     if "sentiment_update_time" in df.columns:
-        sent_update = pd.to_datetime(df["sentiment_update_time"], utc=True, errors="coerce")
-        df["hours_since_sentiment_update"] = (
-            (df["event_time"] - sent_update).dt.total_seconds() / 3600.0
-        )
+        df["hours_since_sentiment_update"] = _hours_since(df["event_time"], df["sentiment_update_time"])
+    elif "sentiment_known_time" in df.columns:
+        df["hours_since_sentiment_update"] = _hours_since(df["event_time"], df["sentiment_known_time"])
+
     if "analyst_update_time" in df.columns:
-        analyst_update = pd.to_datetime(df["analyst_update_time"], utc=True, errors="coerce")
-        df["analyst_action_recency_hours"] = (
-            (df["event_time"] - analyst_update).dt.total_seconds() / 3600.0
-        )
+        df["analyst_action_recency_hours"] = _hours_since(df["event_time"], df["analyst_update_time"])
     else:
         df["analyst_action_recency_hours"] = np.nan
+    if "analyst_known_time" in df.columns:
+        df["hours_since_analyst_update"] = _hours_since(df["event_time"], df["analyst_known_time"])
 
-    if "hours_since_fundamental_update" not in df.columns:
-        if "f_days_since_filing" in df.columns:
-            df["hours_since_fundamental_update"] = df["f_days_since_filing"] * 24.0
-        else:
-            df["hours_since_fundamental_update"] = np.nan
+    if "fundamental_known_time" in df.columns:
+        df["hours_since_fundamental_update"] = _hours_since(df["event_time"], df["fundamental_known_time"])
+    elif "f_days_since_filing" in df.columns:
+        df["hours_since_fundamental_update"] = df["f_days_since_filing"] * 24.0
+    else:
+        df["hours_since_fundamental_update"] = np.nan
     if "m_vix" in df.columns:
         df["m_vix_chg_1h"] = df.groupby("symbol")["m_vix"].transform(lambda s: s - s.shift(1))
     else:

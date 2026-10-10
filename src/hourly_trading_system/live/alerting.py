@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
-import json
-import urllib.request
 
 from .contracts import AlertEvent, AlertSeverity
 
@@ -110,7 +109,7 @@ class AlertRouter:
         )
 
     @staticmethod
-    def with_console_and_file(file_path: str | Path) -> "AlertRouter":
+    def with_console_and_file(file_path: str | Path) -> AlertRouter:
         sink_file = FileAlertSink(file_path)
         sink_console = ConsoleAlertSink()
         return AlertRouter(default_sinks=[sink_console, sink_file])

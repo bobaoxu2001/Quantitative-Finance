@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import pickle
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
-import json
-import pickle
 
+from hourly_trading_system.io_utils import atomic_write_json, sha256_file
 from hourly_trading_system.live.contracts import (
     DeploymentState,
     ModelApprovalStatus,
@@ -41,8 +42,19 @@ class ApprovalPolicy:
         return len(reasons) == 0, reasons
 
 
+class ArtifactIntegrityError(RuntimeError):
+    """Raised when a model artifact does not match its registered checksum."""
+
+
 class ModelRegistry:
-    """Filesystem-backed model registry for live deployment governance."""
+    """
+    Filesystem-backed model registry for live deployment governance.
+
+    Artifacts are pickled; a SHA-256 digest is stored with each version record
+    and verified before unpickling, so a modified or corrupted artifact is
+    rejected instead of being executed. Only load registries you trust --
+    unpickling is equivalent to running code.
+    """
 
     def __init__(self, root_dir: str | Path, policy: ApprovalPolicy | None = None) -> None:
         self.root_dir = Path(root_dir)
@@ -68,8 +80,7 @@ class ModelRegistry:
             handle.write(json.dumps(row) + "\n")
 
     def _save_record(self, record: ModelVersionRecord) -> None:
-        with self._version_file(record.version_id).open("w", encoding="utf-8") as handle:
-            json.dump(record.to_dict(), handle, indent=2)
+        atomic_write_json(self._version_file(record.version_id), record.to_dict())
 
     def _load_record(self, version_id: str) -> ModelVersionRecord:
         path = self._version_file(version_id)
@@ -80,8 +91,7 @@ class ModelRegistry:
         return ModelVersionRecord.from_dict(payload)
 
     def _save_deployment(self, state: DeploymentState) -> None:
-        with self.deployment_file.open("w", encoding="utf-8") as handle:
-            json.dump(state.to_dict(), handle, indent=2)
+        atomic_write_json(self.deployment_file, state.to_dict())
 
     def _load_deployment(self) -> DeploymentState:
         with self.deployment_file.open("r", encoding="utf-8") as handle:
@@ -112,6 +122,7 @@ class ModelRegistry:
             metrics=metrics,
             status=ModelApprovalStatus.DRAFT,
             notes=notes,
+            artifact_sha256=sha256_file(artifact_path),
         )
         self._save_record(record)
         self._audit("register_model", {"version_id": version_id, "model_name": model_name})
@@ -260,6 +271,12 @@ class ModelRegistry:
         artifact = Path(record.artifact_path)
         if not artifact.exists():
             raise FileNotFoundError(f"Missing model artifact: {artifact}")
+        if record.artifact_sha256 is not None:
+            actual = sha256_file(artifact)
+            if actual != record.artifact_sha256:
+                raise ArtifactIntegrityError(
+                    f"Checksum mismatch for {version_id}: expected {record.artifact_sha256}, got {actual}"
+                )
         with artifact.open("rb") as handle:
             return pickle.load(handle)
 

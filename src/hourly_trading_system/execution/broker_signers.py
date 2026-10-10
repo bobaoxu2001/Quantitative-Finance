@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import hmac
-from typing import Any
 import urllib.parse
+from dataclasses import dataclass
+from typing import Any
 
 from hourly_trading_system.live.contracts import now_utc
 
@@ -28,10 +28,18 @@ class BinanceSpotSigner:
         params: dict[str, Any],
         timestamp_ms: int | None = None,
     ) -> dict[str, Any]:
+        """
+        Return params with ``timestamp``, ``recvWindow`` and ``signature`` added.
+
+        Binance verifies the HMAC against the query string *as transmitted*, so
+        the signature is computed over the parameters in insertion order and
+        callers must serialise the returned dict in that same order (e.g.
+        ``urllib.parse.urlencode(list(signed.items()))``).
+        """
         out = {k: v for k, v in params.items() if v is not None}
         out["timestamp"] = timestamp_ms if timestamp_ms is not None else _ts_ms()
         out["recvWindow"] = self.recv_window_ms
-        query = urllib.parse.urlencode(sorted(out.items()))
+        query = urllib.parse.urlencode(list(out.items()))
         sig = hmac.new(self.api_secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
         out["signature"] = sig
         return out
