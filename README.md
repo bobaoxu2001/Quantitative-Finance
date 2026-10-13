@@ -408,6 +408,20 @@ cloud/startup.sh
   - intraday loss kill-switch
   - protective limit-price conversion for market orders
 
+## Football forecasts and Kalshi EV
+
+`football/` holds a match-analysis checklist (`METHODOLOGY.md`) and a running
+predictions log (`predictions_log.csv`). Forecasts are made without odds; Kalshi
+prices are only used afterwards to decide whether a contract is +EV after fees.
+The helpers live in `src/sports_ev/`.
+
+```bash
+# EV of every Yes/No contract, plus a fractional-Kelly stake for the best one
+python scripts/football_ev.py ev --probs 0.35 0.31 0.34 --prices 30.5 28.5 47.8 --bankroll 1000
+# Brier / log loss / hit rate of the predictions log
+python scripts/football_ev.py score football/predictions_log.csv
+```
+
 ## Important note
 
 This codebase is a production **blueprint + executable framework**.
