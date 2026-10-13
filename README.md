@@ -416,8 +416,9 @@ prices are only used afterwards to decide whether a contract is +EV after fees.
 The helpers live in `src/sports_ev/`.
 
 ```bash
-# EV of every Yes/No contract, plus a fractional-Kelly stake for the best one
-python scripts/football_ev.py ev --probs 0.35 0.31 0.34 --prices 30.5 28.5 47.8 --bankroll 1000
+# EV of every Yes/No contract at the Kalshi asks (No ask = 100 - Yes bid),
+# plus a fractional-Kelly stake for the best one
+python scripts/football_ev.py ev --probs 0.35 0.31 0.34 --prices 27 27 48 --no-prices 74 74 53 --bankroll 1000
 # Brier / log loss / hit rate of the predictions log
 python scripts/football_ev.py score football/predictions_log.csv
 ```

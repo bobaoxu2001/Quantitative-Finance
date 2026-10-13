@@ -49,15 +49,27 @@
 
 ## 下注规则（默认值，可以调整）
 
-- **手续费。** 每笔订单按 `0.07 × 份数 × 价格 × (1 − 价格)` 计算，向上取整到分；挂单（maker）用 0.0175。具体系列的费率以 Kalshi 官方费率表为准。
+- **手续费（以 Kalshi 官方文档为准）。**
+  - 吃单（taker）的模型手续费是 `0.07 × 份数 × 价格 × (1 − 价格) × fee_multiplier`。
+  - kalshi.com 直接开户的账户，扣费后余额对齐到 $0.0001；通过经纪商（FCM）结算的账户对齐到 $0.01（CLI 加 `--fcm`）。同一笔订单分多次成交时，多收的零头会通过累计返还。
+  - 挂单（maker）是否收费取决于系列的 `fee_type`，这个值可以通过 `GET /series/{ticker}` 查到：
+    - `quadratic`：挂单不收费，例如巴甲、阿甲、葡超；
+    - `quadratic_with_maker_fees`：挂单按 0.0175 收费，例如英超 `KXEPLGAME`、西甲、意甲。
+  - 用 `--maker` 时，`--prices` 必须填你自己挂的限价；按当前卖价下单会直接成交，按吃单计费。
+- **价格一律用卖价（ask），也就是实际要付的价格。**
+  - Yes 卖价就是 Yes 当前的卖价。
+  - No 卖价等于 100 − Yes 买价，不是 100 − Yes 卖价；两者至少差一个最小报价单位。没有填 `--no-prices` 时，工具不评估 No 合约。
 - **最低边际。** 扣费后每份合约的 EV 至少 +3¢ 才下注。我们的概率误差不小：首批9场的 Brier 分数是0.588，三项都给1/3的基准是0.667，只好一点。所以小于3¢的边际视为噪音。
-- **仓位。** 用 1/4 Kelly，单场最多投入资金的 2%。
-- **一场只下一个方向。** 同一场比赛的各个合约是相关的。比如"主胜-Yes"和"客胜-No"在主队赢球时会一起赢，同时买等于加倍押同一个结果。
-- **Yes 和 No 都要算。** No 的价格用实时挂单价，不要直接用 100 减 Yes 的价格，因为两边之间有买卖价差。
+- **仓位。** 用 1/4 Kelly，单场最多投入资金的 2%。手续费和边际都按实际下单份数重新计算；不够买1份就不下注。
+- **一场只下一个方向。**
+  - 同一场比赛的各个合约是相关的。比如"主胜-Yes"和"客胜-No"在主队赢球时会一起赢，同时买等于加倍押同一个结果。
+  - 候选方向按"在实际下注金额下，资金的期望对数增长"排序，不按每份合约的 EV 排序，因为贵的合约每份 EV 大，但每投入1美元的回报低。
 
 ```bash
-# 例：考文垂 vs 纽卡（我们的概率 35/31/34，Kalshi Yes 价格 30.5/28.5/47.8¢）
-python scripts/football_ev.py ev --probs 0.35 0.31 0.34 --prices 30.5 28.5 47.8 --bankroll 1000
+# 例：考文垂 vs 纽卡，我们的概率是 35/31/34。
+# Kalshi（KXEPLGAME-26OCT12COVNEW）开球前1小时的报价：Yes 卖价 27/27/48¢，Yes 买价 26/26/47¢，所以 No 卖价是 74/74/53¢。
+python scripts/football_ev.py ev --probs 0.35 0.31 0.34 --prices 27 27 48 --no-prices 74 74 53 --bankroll 1000
+# 输出：考文垂胜-Yes 每份 EV +6.6¢，买70份共 $19.87（资金的2%）；平局-Yes 只有 +2.6¢，低于门槛。
 python scripts/football_ev.py score football/predictions_log.csv
 ```
 
@@ -70,7 +82,8 @@ python scripts/football_ev.py score football/predictions_log.csv
 | `p_home`, `p_draw`, `p_away` | 赛前概率，不参考赔率 |
 | `top_score` | 首选比分 |
 | `lean` | 倾向 |
-| `kalshi_home`, `kalshi_draw`, `kalshi_away` | 下注时的 Kalshi Yes 价格，单位为分；没有就留空 |
+| `kalshi_home`, `kalshi_draw`, `kalshi_away` | 决策时 Kalshi 的 Yes 卖价，单位为分；只记录 Kalshi 的实际报价，博彩公司赔率不要填在这里；没有就留空 |
+| `kalshi_no_home`, `kalshi_no_draw`, `kalshi_no_away` | 决策时 Kalshi 的 No 卖价（100 − Yes 买价），单位为分；没有就留空 |
 | `result`, `ht_result` | 全场、半场比分，主队在前 |
 | `outcome` | `home`、`draw` 或 `away`；还没比赛就留空 |
 | `notes` | 备注 |
