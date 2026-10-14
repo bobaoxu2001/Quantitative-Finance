@@ -1,0 +1,5 @@
+date,match,series,contract,side,ask_cents,contracts,cost_per_contract_cents,result,pnl_usd,notes
+2026-10-13,Viking vs Bayern Munich,KXUCLSPREAD,Bayern Munich wins by more than 1.5 goals,no,25,2,26.31,win,1.4737,suggested size; actual fills per account records
+2026-10-13,Galatasaray vs Barcelona,KXUCLSPREAD,Barcelona wins by more than 1.5 goals,no,43,2,44.72,loss,-0.8944,suggested size; actual fills per account records
+2026-10-13,RB Leipzig vs PSV Eindhoven,KXUCLGAME,RB Leipzig,no,41,2,42.7,loss,-0.8539,suggested size; actual fills per account records
+2026-10-13,Inter vs Club Brugge,KXUCLBTTS,Both Teams To Score,yes,53,2,54.74,win,0.9051,suggested size; actual fills per account records

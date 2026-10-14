@@ -124,12 +124,29 @@ def test_brier_scores() -> None:
 
 
 def test_summarize_seeded_log() -> None:
-    s = summarize(pd.read_csv(LOG_PATH))
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-10-12"])
     assert s["matches"] == 9
     assert s["brier"] == pytest.approx(0.588, abs=5e-4)
     assert s["favourite_hits"] == 6
     assert s["top_score_hits"] == 2
     assert s["goals_per_match"] == pytest.approx(33 / 9)
+
+
+def test_summarize_champions_league_night() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-10-13"])
+    assert s["matches"] == 9
+    assert s["favourite_hits"] == 5
+    assert s["goals_per_match"] == pytest.approx(32 / 9)
+
+
+def test_bets_log_pnl_matches_fee_model() -> None:
+    bets = pd.read_csv(LOG_PATH.parent / "bets_log.csv")
+    won = bets["result"] == "win"
+    expected = bets["contracts"] * (won.astype(float) - bets["cost_per_contract_cents"] / 100)
+    assert bets["pnl_usd"].to_numpy() == pytest.approx(expected.to_numpy(), abs=1e-3)
+    assert bets["pnl_usd"].sum() == pytest.approx(0.63, abs=0.01)
 
 
 def test_summarize_tolerates_unsettled_and_unparseable_rows() -> None:
