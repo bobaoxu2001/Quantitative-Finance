@@ -99,5 +99,5 @@ python scripts/football_ev.py score football/predictions_log.csv
 | `series`, `contract`, `side` | Kalshi 系列（如 `KXUCLSPREAD`）、合约名称、买入方向（`yes`/`no`） |
 | `ask_cents`, `contracts` | 买入价（单位为分）、份数 |
 | `cost_per_contract_cents` | 含手续费的每份成本（按 `kalshi_fee` 计算） |
-| `result`, `pnl_usd` | `win`/`loss`，以及含手续费的盈亏（美元） |
+| `result`, `pnl_usd` | `win`/`loss`，以及含手续费的盈亏（美元）；未结算时留空 |
 | `notes` | 备注；实际成交以账户记录为准 |

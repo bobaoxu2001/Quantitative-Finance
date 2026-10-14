@@ -143,10 +143,20 @@ def test_summarize_champions_league_night() -> None:
 
 def test_bets_log_pnl_matches_fee_model() -> None:
     bets = pd.read_csv(LOG_PATH.parent / "bets_log.csv")
+    bets = bets[bets["result"].notna()]  # unsettled bets have no result yet
     won = bets["result"] == "win"
     expected = bets["contracts"] * (won.astype(float) - bets["cost_per_contract_cents"] / 100)
     assert bets["pnl_usd"].to_numpy() == pytest.approx(expected.to_numpy(), abs=1e-3)
     assert bets["pnl_usd"].sum() == pytest.approx(0.63, abs=0.01)
+
+
+def test_bets_log_costs_match_kalshi_fills() -> None:
+    # The 14 Oct rows are real 50-100 contract fills, so this checks kalshi_fee against Kalshi's own charges.
+    bets = pd.read_csv(LOG_PATH.parent / "bets_log.csv")
+    for row in bets.itertuples():
+        fee = kalshi_fee(row.ask_cents / 100, row.contracts)
+        expected = row.ask_cents + 100 * fee / row.contracts
+        assert row.cost_per_contract_cents == pytest.approx(expected, abs=0.01)
 
 
 def test_summarize_tolerates_unsettled_and_unparseable_rows() -> None:
