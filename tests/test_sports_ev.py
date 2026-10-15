@@ -141,13 +141,23 @@ def test_summarize_champions_league_night() -> None:
     assert s["goals_per_match"] == pytest.approx(32 / 9)
 
 
+def test_summarize_second_champions_league_night() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-10-14"])
+    assert s["matches"] == 9
+    assert s["brier"] == pytest.approx(0.488, abs=5e-4)
+    assert s["favourite_hits"] == 6
+    assert s["top_score_hits"] == 0
+    assert s["goals_per_match"] == pytest.approx(46 / 9)
+
+
 def test_bets_log_pnl_matches_fee_model() -> None:
     bets = pd.read_csv(LOG_PATH.parent / "bets_log.csv")
     bets = bets[bets["result"].notna()]  # unsettled bets have no result yet
     won = bets["result"] == "win"
     expected = bets["contracts"] * (won.astype(float) - bets["cost_per_contract_cents"] / 100)
     assert bets["pnl_usd"].to_numpy() == pytest.approx(expected.to_numpy(), abs=1e-3)
-    assert bets["pnl_usd"].sum() == pytest.approx(0.63, abs=0.01)
+    assert bets["pnl_usd"].sum() == pytest.approx(-22.12, abs=0.01)
 
 
 def test_bets_log_costs_match_kalshi_fills() -> None:

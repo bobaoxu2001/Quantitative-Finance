@@ -3,7 +3,7 @@ date,match,series,contract,side,ask_cents,contracts,cost_per_contract_cents,resu
 2026-10-13,Galatasaray vs Barcelona,KXUCLSPREAD,Barcelona wins by more than 1.5 goals,no,43,2,44.72,loss,-0.8944,suggested size; actual fills per account records
 2026-10-13,RB Leipzig vs PSV Eindhoven,KXUCLGAME,RB Leipzig,no,41,2,42.7,loss,-0.8539,suggested size; actual fills per account records
 2026-10-13,Inter vs Club Brugge,KXUCLBTTS,Both Teams To Score,yes,53,2,54.74,win,0.9051,suggested size; actual fills per account records
-2026-10-14,Slovan Bratislava vs Stuttgart,KXUCLSPREAD,Stuttgart wins by more than 1.5 goals,no,46,100,47.74,,,"real taker fill, size chosen by user (model suggested 3); model EV +10.5c / market-total +7.5c / fav-boost +0.7c"
-2026-10-14,Manchester City vs Paris Saint-Germain,KXUCLSPREAD,Manchester City wins by more than 1.5 goals,yes,27,100,28.38,,,"real taker fill; user's own pick, model EV -4.5c (fav-boost +3.3c)"
-2026-10-14,Aston Villa vs Fenerbahce,KXUCLGAME,Fenerbahce,yes,19,50,20.08,,,"real taker fill, size chosen by user (model suggested 4); model EV +7.9c / market-total +8.0c / fav-boost +1.2c"
-2026-10-14,Shakhtar Donetsk vs AEK Athens,KXUCLGAME,Shakhtar Donetsk,yes,35,100,36.59,,,"real taker fill, size chosen by user (model suggested 3); model EV +4.6c at 35c (+3.5c at 36c); fav-boost +11.8c at 36c"
+2026-10-14,Slovan Bratislava vs Stuttgart,KXUCLSPREAD,Stuttgart wins by more than 1.5 goals,no,46,100,47.74,loss,-47.7400,"real taker fill, size chosen by user (model suggested 3); model EV +10.5c / market-total +7.5c / fav-boost +0.7c"
+2026-10-14,Manchester City vs Paris Saint-Germain,KXUCLSPREAD,Manchester City wins by more than 1.5 goals,yes,27,100,28.38,loss,-28.3800,"real taker fill; user's own pick, model EV -4.5c (fav-boost +3.3c)"
+2026-10-14,Aston Villa vs Fenerbahce,KXUCLGAME,Fenerbahce,yes,19,50,20.08,loss,-10.0400,"real taker fill, size chosen by user (model suggested 4); model EV +7.9c / market-total +8.0c / fav-boost +1.2c"
+2026-10-14,Shakhtar Donetsk vs AEK Athens,KXUCLGAME,Shakhtar Donetsk,yes,35,100,36.59,win,63.4100,"real taker fill, size chosen by user (model suggested 3); model EV +4.6c at 35c (+3.5c at 36c); fav-boost +11.8c at 36c"
