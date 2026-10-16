@@ -151,6 +151,15 @@ def test_summarize_second_champions_league_night() -> None:
     assert s["goals_per_match"] == pytest.approx(46 / 9)
 
 
+def test_summarize_europa_conference_night() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-10-15"])
+    assert s["matches"] == 12
+    assert s["brier"] == pytest.approx(0.444, abs=5e-4)
+    assert s["favourite_hits"] == 8
+    assert s["goals_per_match"] == pytest.approx(42 / 12)
+
+
 def test_bets_log_pnl_matches_fee_model() -> None:
     bets = pd.read_csv(LOG_PATH.parent / "bets_log.csv")
     bets = bets[bets["result"].notna()]  # unsettled bets have no result yet
