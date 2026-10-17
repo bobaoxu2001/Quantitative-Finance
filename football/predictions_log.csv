@@ -42,3 +42,4 @@ date,competition,home,away,p_home,p_draw,p_away,top_score,lean,kalshi_home,kalsh
 2026-10-17,Serie A,Bologna,Inter,0.24,0.25,0.51,1-1,pending,,,,,,,,,,"odds-blind researcher + reviewer workflow with ClubElo opponent adjustment; xG 1.1-1.7, 1H share 0.44"
 2026-10-17,Premier League,Newcastle United,Aston Villa,0.38,0.26,0.36,1-1,pending,,,,,,,,,,"odds-blind researcher + reviewer workflow with ClubElo opponent adjustment; xG 1.48-1.47, 1H share 0.45"
 2026-10-17,Bundesliga,Bayern Munich,RB Leipzig,0.712,0.16,0.128,2-1,pending,,,,,,,,,,"odds-blind researcher + reviewer workflow with ClubElo opponent adjustment; xG 2.7-1.1, 1H share 0.44"
+2026-10-17,La Liga,Real Betis,Barcelona,0.21,0.21,0.58,1-2,pending,,,,,,,,,,"odds-blind researcher + reviewer workflow with ClubElo opponent adjustment; xG 1.2-2.1, 1H share 0.44"
