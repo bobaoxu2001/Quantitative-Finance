@@ -13,9 +13,11 @@ from sports_ev import (
     evaluate_contract,
     evaluate_match,
     fee_rate,
+    fit_sharpness,
     kalshi_fee,
     multiclass_brier,
     recommend,
+    sharpen,
     summarize,
 )
 
@@ -158,6 +160,28 @@ def test_summarize_europa_conference_night() -> None:
     assert s["brier"] == pytest.approx(0.444, abs=5e-4)
     assert s["favourite_hits"] == 8
     assert s["goals_per_match"] == pytest.approx(42 / 12)
+
+
+def test_summarize_saturday_league_round() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-10-17"])
+    assert s["matches"] == 11
+    assert s["favourite_hits"] == 8
+    assert s["goals_per_match"] == pytest.approx(43 / 11)
+
+
+def test_sharpen_moves_weight_to_the_favourite() -> None:
+    assert sharpen([0.5, 0.3, 0.2], 1.0) == pytest.approx([0.5, 0.3, 0.2])
+    out = sharpen([0.5, 0.3, 0.2], 1.5)
+    assert sum(out) == pytest.approx(1.0)
+    assert out[0] > 0.5 and out[2] < 0.2
+    with pytest.raises(ValueError):
+        sharpen([0.5, 0.3, 0.2], 0)
+
+
+def test_fit_sharpness_finds_our_favourite_bias() -> None:
+    # Favourites won 33 of the first 50 settled matches against 25.75 expected, so the fit stretches.
+    assert fit_sharpness(pd.read_csv(LOG_PATH)) > 1.0
 
 
 def test_bets_log_pnl_matches_fee_model() -> None:

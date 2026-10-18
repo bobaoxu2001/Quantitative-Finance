@@ -36,6 +36,30 @@ def _parse_score(score: object) -> tuple[int, int] | None:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
+def sharpen(probs: Sequence[float], a: float) -> list[float]:
+    """Raise each probability to the power a and renormalise; a > 1 moves weight to the favourite."""
+    if a <= 0:
+        raise ValueError("a must be positive")
+    powered = [max(p, 0.0) ** a for p in probs]
+    total = sum(powered)
+    return [p / total for p in powered]
+
+
+def fit_sharpness(log: pd.DataFrame, grid: Sequence[float] | None = None) -> float:
+    """Exponent for sharpen() that minimises mean log loss over the settled rows of a predictions log."""
+    settled = log[log["outcome"].isin(OUTCOMES)]
+    if settled.empty:
+        return 1.0
+    probs = settled[["p_home", "p_draw", "p_away"]].to_numpy(dtype=float)
+    outcomes = settled["outcome"].tolist()
+    grid = grid if grid is not None else [round(0.5 + 0.05 * i, 2) for i in range(51)]
+
+    def mean_loss(a: float) -> float:
+        return sum(log_loss(sharpen(p, a), o) for p, o in zip(probs, outcomes)) / len(outcomes)
+
+    return min(grid, key=mean_loss)
+
+
 def summarize(log: pd.DataFrame) -> dict[str, float]:
     """Aggregate scores over settled rows of a predictions log.
 

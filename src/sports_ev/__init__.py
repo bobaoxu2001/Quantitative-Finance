@@ -14,7 +14,7 @@ from .kalshi import (
     kalshi_fee,
     recommend,
 )
-from .scoring import log_loss, multiclass_brier, summarize
+from .scoring import fit_sharpness, log_loss, multiclass_brier, sharpen, summarize
 
 __all__ = [
     "DIRECT_MEMBER_PRECISION",
@@ -27,9 +27,11 @@ __all__ = [
     "evaluate_contract",
     "evaluate_match",
     "fee_rate",
+    "fit_sharpness",
     "kalshi_fee",
     "log_loss",
     "multiclass_brier",
     "recommend",
+    "sharpen",
     "summarize",
 ]

@@ -19,7 +19,9 @@ from sports_ev import (
     FCM_PRECISION,
     evaluate_match,
     fee_rate,
+    fit_sharpness,
     recommend,
+    sharpen,
     summarize,
 )
 
@@ -78,7 +80,8 @@ def run_ev(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
 
 
 def run_score(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    s = summarize(pd.read_csv(args.log))
+    log = pd.read_csv(args.log)
+    s = summarize(log)
     if s["matches"] == 0:
         print("No settled matches in the log.")
         return
@@ -89,6 +92,11 @@ def run_score(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
     print(f"Favourite hits:       {s['favourite_hits']}/{n}   expected from our probs {s['favourite_hits_expected']:.2f}")
     print(f"Top-score hits:       {s['top_score_hits']}/{n}")
     print(f"Goals per match:      {s['goals_per_match']:.2f}")
+    a = fit_sharpness(log)
+    sharpened = log.copy()
+    probs = sharpened[["p_home", "p_draw", "p_away"]].to_numpy(dtype=float)
+    sharpened[["p_home", "p_draw", "p_away"]] = [sharpen(p, a) for p in probs]
+    print(f"Best sharpening a:    {a:.2f}   Brier if applied {summarize(sharpened)['brier']:.3f} (in-sample)")
 
 
 def main() -> None:
