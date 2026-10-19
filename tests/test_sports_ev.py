@@ -170,6 +170,15 @@ def test_summarize_saturday_league_round() -> None:
     assert s["goals_per_match"] == pytest.approx(43 / 11)
 
 
+def test_summarize_first_calibrated_round() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-10-18"])  # probabilities logged after sharpening with a=1.5
+    assert s["matches"] == 15
+    assert s["brier"] == pytest.approx(0.509, abs=5e-4)
+    assert s["favourite_hits"] == 10
+    assert s["goals_per_match"] == pytest.approx(53 / 15)
+
+
 def test_sharpen_moves_weight_to_the_favourite() -> None:
     assert sharpen([0.5, 0.3, 0.2], 1.0) == pytest.approx([0.5, 0.3, 0.2])
     out = sharpen([0.5, 0.3, 0.2], 1.5)
