@@ -179,6 +179,15 @@ def test_summarize_first_calibrated_round() -> None:
     assert s["goals_per_match"] == pytest.approx(53 / 15)
 
 
+def test_summarize_monday_round_with_unknown_score() -> None:
+    log = pd.read_csv(LOG_PATH)
+    day = log[log["date"] == "2026-10-19"]
+    assert sorted(day["outcome"]) == ["away", "draw", "home"]
+    s = summarize(day)
+    assert s["matches"] == 3
+    assert s["goals_per_match"] == pytest.approx(3.0)  # Braga v Gil Vicente has no recorded score
+
+
 def test_sharpen_moves_weight_to_the_favourite() -> None:
     assert sharpen([0.5, 0.3, 0.2], 1.0) == pytest.approx([0.5, 0.3, 0.2])
     out = sharpen([0.5, 0.3, 0.2], 1.5)
