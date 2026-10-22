@@ -10,3 +10,5 @@ date,match,series,contract,side,ask_cents,contracts,cost_per_contract_cents,resu
 2026-10-20,Fenerbahce vs Slavia Prague,KXUCLGAME,Fenerbahce,yes,62,2,63.65,loss,-1.2730,"real taker fill per user; half size, edge only after calibration (a=1.6)"
 2026-10-20,Liverpool vs Villarreal,KXUCLGAME,Liverpool,yes,65,2,66.59,win,0.6681,"real taker fill per user; half size, edge only after calibration (a=1.6)"
 2026-10-20,Porto vs PSV Eindhoven,KXUCLGAME,Porto,yes,63,2,64.63,loss,-1.2927,"real taker fill per user; half size, edge only after calibration (a=1.6)"
+2026-10-21,Club Brugge vs Lens,KXUCLGAME,Club Brugge,yes,50,2,51.75,win,0.9650,"real taker fill per user; half size, edge only after calibration (a=1.6)"
+2026-10-21,Aston Villa vs Viking,KXUCLGAME,Aston Villa,yes,79,2,80.17,win,0.3967,real taker fill per user; user's own pick against advice (only +3c at 79c after calibration)

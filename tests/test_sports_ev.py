@@ -195,6 +195,13 @@ def test_summarize_champions_league_matchday_three() -> None:
     assert s["goals_per_match"] == pytest.approx(40 / 9)
 
 
+def test_summarize_champions_league_matchday_three_second_night() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-10-21"])
+    assert s["matches"] == 9
+    assert s["goals_per_match"] == pytest.approx(34 / 9)
+
+
 def test_sharpen_moves_weight_to_the_favourite() -> None:
     assert sharpen([0.5, 0.3, 0.2], 1.0) == pytest.approx([0.5, 0.3, 0.2])
     out = sharpen([0.5, 0.3, 0.2], 1.5)
@@ -215,7 +222,7 @@ def test_bets_log_pnl_matches_fee_model() -> None:
     won = bets["result"] == "win"
     expected = bets["contracts"] * (won.astype(float) - bets["cost_per_contract_cents"] / 100)
     assert bets["pnl_usd"].to_numpy() == pytest.approx(expected.to_numpy(), abs=1e-3)
-    assert bets["pnl_usd"].sum() == pytest.approx(-24.02, abs=0.01)
+    assert bets["pnl_usd"].sum() == pytest.approx(-22.66, abs=0.01)
 
 
 def test_bets_log_costs_match_kalshi_fills() -> None:
