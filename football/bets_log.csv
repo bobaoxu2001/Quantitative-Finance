@@ -12,3 +12,7 @@ date,match,series,contract,side,ask_cents,contracts,cost_per_contract_cents,resu
 2026-10-20,Porto vs PSV Eindhoven,KXUCLGAME,Porto,yes,63,2,64.63,loss,-1.2927,"real taker fill per user; half size, edge only after calibration (a=1.6)"
 2026-10-21,Club Brugge vs Lens,KXUCLGAME,Club Brugge,yes,50,2,51.75,win,0.9650,"real taker fill per user; half size, edge only after calibration (a=1.6)"
 2026-10-21,Aston Villa vs Viking,KXUCLGAME,Aston Villa,yes,79,2,80.17,win,0.3967,real taker fill per user; user's own pick against advice (only +3c at 79c after calibration)
+2026-10-22,Lech Poznan vs Sunderland,KXUELGAME,Sunderland,no,44,2,45.73,win,1.0855,real taker fill per user; half size; >20pt gap with a liquid market treated as suspicious data
+2026-10-22,Juventus vs Rennes,KXUELGAME,Juventus,yes,64,2,65.61,loss,-1.3123,"real taker fill per user; half size, edge only after calibration (a=1.6)"
+2026-10-22,Bournemouth vs AC Milan,KXUELGAME,Bournemouth,yes,49,2,50.75,win,0.9850,"real taker fill per user; half size, edge only after calibration (a=1.6)"
+2026-10-22,Hoffenheim vs Lyon,KXUELGAME,Hoffenheim,no,50,2,51.75,loss,-1.0350,"real taker fill per user; half size; raw Lyon 43% v market 28%, near the suspicious-data line"
