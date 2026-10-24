@@ -227,7 +227,9 @@ def test_sharpen_moves_weight_to_the_favourite() -> None:
 
 def test_fit_sharpness_finds_our_favourite_bias() -> None:
     # Favourites won 33 of the first 50 settled matches against 25.75 expected, so the fit stretches.
-    assert fit_sharpness(pd.read_csv(LOG_PATH)) > 1.0
+    # Rows from 18 Oct are logged already sharpened, so only the earlier, raw forecasts are fitted.
+    log = pd.read_csv(LOG_PATH)
+    assert fit_sharpness(log[log["date"] <= "2026-10-17"]) > 1.0
 
 
 def test_bets_log_pnl_matches_fee_model() -> None:
