@@ -225,9 +225,16 @@ def test_summarize_saturday_league_round() -> None:
 
 def test_summarize_sunday_league_round() -> None:
     log = pd.read_csv(LOG_PATH)
-    s = summarize(log[(log["date"] == "2026-10-25") & log["outcome"].notna()])
-    assert s["matches"] == 11  # PSG v Lyon was postponed to 26 Oct
-    assert s["goals_per_match"] == pytest.approx(30 / 11)
+    s = summarize(log[log["date"] == "2026-10-25"])
+    assert s["matches"] == 12  # PSG v Lyon was postponed to 26 Oct but stays on its original row
+    assert s["goals_per_match"] == pytest.approx(32 / 12)
+
+
+def test_summarize_monday_round() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-10-26"])
+    assert s["matches"] == 5
+    assert s["goals_per_match"] == pytest.approx(17 / 5)
 
 
 def test_sharpen_moves_weight_to_the_favourite() -> None:
@@ -252,7 +259,7 @@ def test_bets_log_pnl_matches_fee_model() -> None:
     won = bets["result"] == "win"
     expected = bets["contracts"] * (won.astype(float) - bets["cost_per_contract_cents"] / 100)
     assert bets["pnl_usd"].to_numpy() == pytest.approx(expected.to_numpy(), abs=1e-3)
-    assert bets["pnl_usd"].sum() == pytest.approx(-21.41, abs=0.01)
+    assert bets["pnl_usd"].sum() == pytest.approx(-20.35, abs=0.01)
 
 
 def test_bets_log_costs_match_kalshi_fills() -> None:
