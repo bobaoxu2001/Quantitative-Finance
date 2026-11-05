@@ -272,6 +272,13 @@ def test_summarize_saturday_oct31_round() -> None:
     assert s["goals_per_match"] == pytest.approx(40 / 12)
 
 
+def test_summarize_ucl_matchday4_tuesday() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-11-03"])
+    assert s["matches"] == 9
+    assert s["goals_per_match"] == pytest.approx(26 / 9)
+
+
 def test_sharpen_moves_weight_to_the_favourite() -> None:
     assert sharpen([0.5, 0.3, 0.2], 1.0) == pytest.approx([0.5, 0.3, 0.2])
     out = sharpen([0.5, 0.3, 0.2], 1.5)
