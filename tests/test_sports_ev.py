@@ -9,13 +9,18 @@ import pytest
 
 from sports_ev import (
     FCM_PRECISION,
+    Contract,
     american_to_prob,
+    contract_prob,
     evaluate_contract,
     evaluate_match,
     fee_rate,
     fit_sharpness,
+    grid,
     kalshi_fee,
     multiclass_brier,
+    one_x_two,
+    parse_contract,
     recommend,
     sharpen,
     summarize,
@@ -277,6 +282,46 @@ def test_summarize_ucl_matchday4_tuesday() -> None:
     s = summarize(log[log["date"] == "2026-11-03"])
     assert s["matches"] == 9
     assert s["goals_per_match"] == pytest.approx(26 / 9)
+
+
+def test_summarize_uel_uecl_nov05() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-11-05"])
+    assert s["matches"] == 10
+    assert s["goals_per_match"] == pytest.approx(23 / 10)
+
+
+def test_score_grid_is_normalised_and_one_x_two_sums_to_one() -> None:
+    g = grid(1.4, 1.1)
+    assert sum(g.values()) == pytest.approx(1.0)
+    probs = one_x_two(g)
+    assert sum(probs) == pytest.approx(1.0)
+    assert probs[0] > probs[2]
+
+
+def test_parse_contract_reads_kalshi_ticker_suffixes() -> None:
+    assert parse_contract("GAME", "TIE", "ITA", "FRA") == Contract("tie")
+    assert parse_contract("GAME", "FRA", "ITA", "FRA") == Contract("win", "away")
+    assert parse_contract("SPREAD", "FRA2", "ITA", "FRA") == Contract("spread", "away", 1.5)
+    assert parse_contract("TOTAL", "3", "ITA", "FRA") == Contract("total", line=2.5)
+    assert parse_contract("1HSPREAD", "ITA2", "ITA", "FRA") == Contract("spread", "home", 1.5, True)
+    assert parse_contract("BTTS", "BTTS", "ITA", "FRA") == Contract("btts")
+
+
+def test_parse_contract_drops_unknown_team_codes() -> None:
+    # SV Elversberg v Mainz once priced "M051" team totals at p=1.0 against the wrong side.
+    assert parse_contract("TEAMTOTAL", "XYZ2", "SVE", "M05") is None
+    assert parse_contract("GAME", "XYZ", "SVE", "M05") is None
+
+
+def test_contract_prob_matches_grid_events() -> None:
+    g = grid(1.4, 1.1)
+    home, draw, away = one_x_two(g)
+    assert contract_prob(Contract("win", "home"), g) == pytest.approx(home)
+    assert contract_prob(Contract("tie"), g) == pytest.approx(draw)
+    over = contract_prob(Contract("total", line=2.5), g)
+    under = sum(p for (i, j), p in g.items() if i + j <= 2)
+    assert over + under == pytest.approx(1.0)
 
 
 def test_sharpen_moves_weight_to_the_favourite() -> None:
