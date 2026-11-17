@@ -291,6 +291,20 @@ def test_summarize_uel_uecl_nov05() -> None:
     assert s["goals_per_match"] == pytest.approx(23 / 10)
 
 
+def test_summarize_nations_league_nov12() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-11-12"])
+    assert s["matches"] == 4
+    assert s["goals_per_match"] == pytest.approx(12 / 4)
+
+
+def test_summarize_nations_league_nov13() -> None:
+    log = pd.read_csv(LOG_PATH)
+    s = summarize(log[log["date"] == "2026-11-13"])
+    assert s["matches"] == 1
+    assert s["goals_per_match"] == pytest.approx(7.0)
+
+
 def test_score_grid_is_normalised_and_one_x_two_sums_to_one() -> None:
     g = grid(1.4, 1.1)
     assert sum(g.values()) == pytest.approx(1.0)
